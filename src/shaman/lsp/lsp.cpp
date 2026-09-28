@@ -56,7 +56,7 @@ Result<std::unique_ptr<Client>> Client::start(const ServerSpec& spec, const fs::
   if (!child) return std::unexpected(child.error());
   auto c = std::unique_ptr<Client>(new Client(spec, std::move(*child)));
   auto init = c->request("initialize",
-                         {{"processId", nullptr},
+                         {{"processId", nullptr},  // so the server doesn't exit when watching our pid
                           {"rootUri", uri(root)},
                           {"workspaceFolders", Json::array({{{"uri", uri(root)}, {"name", root.filename().string()}}})},
                           {"capabilities",
@@ -64,10 +64,13 @@ Result<std::unique_ptr<Client>> Client::start(const ServerSpec& spec, const fs::
                              {{"synchronization", {{"didSave", true}}},
                               {"publishDiagnostics", {{"relatedInformation", false}}},
                               {"hover", {{"contentFormat", {"plaintext", "markdown"}}}}}},
-                            {"workspace", {{"configuration", true}, {"workspaceFolders", true}}}}}},
+                            {"workspace", {{"configuration", true}, {"workspaceFolders", true},
+                                           {"didChangeConfiguration", {{"dynamicRegistration", true}}}}}}}},
                          20s);
   if (!init) return std::unexpected(init.error());
   c->notify("initialized", Json::object());
+  // Several servers (pyright among them) wait for this before analysing anything.
+  c->notify("workspace/didChangeConfiguration", {{"settings", Json::object()}});
   log::debug(log::Cat::tool, "lsp {} started", spec.id);
   return c;
 }
@@ -104,6 +107,7 @@ Result<std::optional<Json>> Client::read_message(milliseconds wait) {
   auto body = child_.read_exact(length, wait);
   if (!body) return std::unexpected(body.error());
   if (!*body) return std::optional<Json>{};
+  log::debug(log::Cat::mcp, "lsp {} <- {}", spec_.id, body->value_or("").substr(0, 300));
   try {
     return std::optional<Json>(Json::parse(**body));
   } catch (...) {
@@ -117,7 +121,8 @@ void Client::handle(const Json& msg) {
     Json result = nullptr;
     if (method == "workspace/configuration") {
       result = Json::array();
-      for (size_t i = 0; i < msg["params"].value("items", Json::array()).size(); ++i) result.push_back(nullptr);
+      auto items = msg["params"].value("items", Json::array());
+      for (size_t i = 0; i < items.size(); ++i) result.push_back(Json::object());  // {} = defaults; null confuses some servers
     }
     send({{"jsonrpc", "2.0"}, {"id", msg["id"]}, {"result", result}});
     return;
@@ -164,12 +169,13 @@ std::vector<Diagnostic> Client::diagnostics(const fs::path& file, const std::str
     notify("textDocument/didChange", {{"textDocument", {{"uri", u}, {"version", ++version}}}, {"contentChanges", Json::array({{{"text", text}}})}});
   }
   notify("textDocument/didSave", {{"textDocument", {{"uri", u}}}, {"text", text}});
-  auto deadline = steady_clock::now() + wait;
+  auto deadline = steady_clock::now() + (warmed_ ? wait : std::max<milliseconds>(wait, 15s));
   while (!fresh_[u] && steady_clock::now() < deadline) {
     auto msg = read_message(duration_cast<milliseconds>(deadline - steady_clock::now()));
     if (!msg || !*msg) break;
     handle(**msg);
   }
+  if (fresh_[u]) warmed_ = true;
   return diagnostics_[u];
 }
 

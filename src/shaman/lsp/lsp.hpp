@@ -50,6 +50,7 @@ class Client {
   std::map<std::string, int> versions_;                          // uri -> version
   std::map<std::string, std::vector<Diagnostic>> diagnostics_;   // uri -> latest
   std::map<std::string, bool> fresh_;                            // uri -> got diagnostics since last change
+  bool warmed_ = false;                                          // first analysis can take several seconds
 };
 
 // Starts servers lazily by file extension and formats diagnostics for tools.

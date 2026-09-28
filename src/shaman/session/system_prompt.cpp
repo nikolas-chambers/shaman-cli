@@ -34,10 +34,10 @@ std::string system_prompt(const agent::Agent& agent, const Config& config, const
                      root.string(), fs::exists(root / ".git", ec) ? "yes" : "no", platform(), today, model_ref);
 
   std::vector<fs::path> files;
-  for (auto name : {"AGENTS.md", "SHAMAN.md", "CLAUDE.md"})
+  for (auto name : {"SHAMAN.md", "AGENTS.md"})
     if (fs::is_regular_file(root / name, ec)) {
       files.push_back(root / name);
-      break;  // first match wins, like opencode
+      break;  // first match wins
     }
   if (fs::is_regular_file(paths::config_dir() / "AGENTS.md", ec)) files.push_back(paths::config_dir() / "AGENTS.md");
   for (auto& extra : config.instructions) files.push_back(paths::resolve(root, extra));

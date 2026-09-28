@@ -84,6 +84,9 @@ printf -- '---\ndescription: greet\n---\nsay $ARGUMENTS loudly\n' > .shaman/comm
 printf -- '---\nname: demo\ndescription: demo skill\n---\nDemo skill body.\n' > .shaman/skills/demo/SKILL.md
 check "custom command"       "echo: say there loudly"     "$shaman" run --command hi there
 check "skills discovered"    "demo skill"                 "$shaman" debug skills
+check "built-in skills"      "pdf  (built-in)"            "$shaman" debug skills
+check "built-in skill loads" "pdf_tool.py"                "$shaman" run 'call skill {"name":"pdf"}'
+check "no .claude reading"   "0"                          bash -c "mkdir -p .claude/skills/x && printf -- '---\nname: claudeonly\ndescription: d\n---\nb\n' > .claude/skills/x/SKILL.md && '$shaman' debug skills | grep -c claudeonly"
 check "skill tool"           "Demo skill body"            "$shaman" run 'call skill {"name":"demo"}'
 check "apply_patch tool"     "A added.txt"                "$shaman" run --yolo 'call apply_patch {"patchText":"*** Begin Patch\n*** Add File: added.txt\n+hello patch\n*** End Patch"}'
 check "websearch tool"       "https://example.com/docs"   env SHAMAN_SEARCH_URL="$url/search" "$shaman" run 'call websearch {"query":"example"}'

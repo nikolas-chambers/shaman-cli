@@ -21,6 +21,7 @@ struct ToolCallPart {
   std::string id;
   std::string name;
   Json input = Json::object();
+  Json meta;  // opaque provider data that must be echoed back (e.g. Gemini thought signatures)
 };
 struct ImagePart {
   std::string media_type;  // image/png, image/jpeg, ...

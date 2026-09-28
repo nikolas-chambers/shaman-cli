@@ -63,7 +63,8 @@ int cmd_debug(App& app, const Args& args) {
       std::cout << (r ? *r : r.error().message) << "\n";
     }
   } else if (what == "skills") {
-    for (auto& s : skill::discover(app.root)) std::cout << "  " << s.name << "  " << s.dir.string() << "\n    " << s.description << "\n";
+    for (auto& s : skill::discover(app.root))
+      std::cout << "  " << s.name << "  (" << s.source << ")\n    " << s.description << "\n";
   } else if (what == "commands") {
     for (auto& c : command::discover(app.config, app.root)) std::cout << "  /" << c.name << "  (" << c.source << ")  " << c.description << "\n";
   } else if (what == "plugins") {

@@ -62,6 +62,8 @@ class Gate {
   Gate(Rules rules, Asker asker, Hook hook = nullptr)
       : rules_(std::move(rules)), asker_(std::move(asker)), hook_(std::move(hook)) {}
   bool check(const Request& req);
+  // --yolo: every "ask" becomes "allow". Explicit "deny" rules still hold, so
+  // a read-only agent stays read-only and `rm -rf /` stays refused.
   void allow_all() { yolo_ = true; }
 
  private:

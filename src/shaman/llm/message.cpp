@@ -35,7 +35,9 @@ Json to_json(const Message& m) {
         [](const ReasoningPart& r) { return Json{{"type", "reasoning"}, {"text", r.text}}; },
         [](const ImagePart& i) { return Json{{"type", "image"}, {"media_type", i.media_type}, {"data", i.data}}; },
         [](const ToolCallPart& c) {
-          return Json{{"type", "tool_call"}, {"id", c.id}, {"name", c.name}, {"input", c.input}};
+          Json j{{"type", "tool_call"}, {"id", c.id}, {"name", c.name}, {"input", c.input}};
+          if (!c.meta.is_null()) j["meta"] = c.meta;
+          return j;
         },
         [](const ToolResultPart& r) {
           return Json{{"type", "tool_result"}, {"call_id", r.call_id}, {"name", r.name},
@@ -55,7 +57,7 @@ Message message_from_json(const Json& j) {
     else if (type == "reasoning") m.parts.push_back(ReasoningPart{p.value("text", "")});
     else if (type == "image") m.parts.push_back(ImagePart{p.value("media_type", ""), p.value("data", "")});
     else if (type == "tool_call")
-      m.parts.push_back(ToolCallPart{p.value("id", ""), p.value("name", ""), p.value("input", Json::object())});
+      m.parts.push_back(ToolCallPart{p.value("id", ""), p.value("name", ""), p.value("input", Json::object()), p.value("meta", Json())});
     else if (type == "tool_result")
       m.parts.push_back(ToolResultPart{p.value("call_id", ""), p.value("name", ""), p.value("output", ""),
                                        p.value("is_error", false), p.value("title", "")});

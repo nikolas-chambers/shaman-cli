@@ -20,7 +20,7 @@ void builtins(std::map<std::string, Command>& out) {
                  "Analyse this codebase and create an AGENTS.md file in the project root (or improve the existing one). "
                  "Include: build, lint and test commands (especially how to run a single test); code style: imports, "
                  "formatting, naming, error handling; and anything a new contributor would get wrong. Keep it around "
-                 "20-30 lines. If there are Cursor rules, Copilot instructions or a CLAUDE.md, fold in what matters.\n\n$ARGUMENTS",
+                 "20-30 lines. If the repo has other agent or editor instruction files, fold in what matters.\n\n$ARGUMENTS",
                  std::nullopt, std::nullopt, "builtin"};
   out["review"] = {"review", "Review uncommitted changes (or a ref: /review main)",
                    "Review these changes for bugs, security problems and unclear code. Report only real issues, most "
@@ -34,7 +34,7 @@ void builtins(std::map<std::string, Command>& out) {
 std::vector<Command> discover(const Config& config, const fs::path& root) {
   std::map<std::string, Command> found;
   builtins(found);
-  for (auto dir : {paths::config_dir() / "commands", root / ".claude" / "commands", root / ".shaman" / "commands"}) {
+  for (auto dir : {paths::config_dir() / "commands", root / ".shaman" / "commands"}) {
     std::error_code ec;
     if (!fs::is_directory(dir, ec)) continue;
     for (auto& e : fs::recursive_directory_iterator(dir, ec)) {

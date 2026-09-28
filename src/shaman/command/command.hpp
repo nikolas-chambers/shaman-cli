@@ -11,8 +11,8 @@ namespace shaman::command {
 
 // Custom slash commands: reusable prompt templates.
 //
-// Markdown files in $XDG_CONFIG_HOME/shaman/commands/, .claude/commands/ or
-// .shaman/commands/ (name = file stem), or config:
+// Markdown files in $XDG_CONFIG_HOME/shaman/commands/ or .shaman/commands/
+// (name = file stem), or config:
 //   "command": { "test": { "template": "Run the tests and fix failures in $ARGUMENTS",
 //                          "description": "...", "agent": "build", "model": "..." } }
 //

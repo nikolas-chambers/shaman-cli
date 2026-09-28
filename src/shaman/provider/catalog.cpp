@@ -45,6 +45,14 @@ ProviderInfo make(std::string id, std::string name, Api api, std::string base, s
   return p;
 }
 
+// Model lists include embeddings, speech, image and video models; keep chat models only.
+bool chat_model(const std::string& id) {
+  for (auto word : {"embed", "tts", "whisper", "transcribe", "veo", "lyria", "imagen", "image", "dall-e", "live", "audio",
+                    "robotics", "aqa", "moderation", "computer-use", "deep-research", "nano-banana", "translate", "sora"})
+    if (id.find(word) != std::string::npos) return false;
+  return true;
+}
+
 fs::path cache_file(const std::string& id) { return paths::cache_dir() / "models" / (id + ".json"); }
 
 }  // namespace
@@ -80,8 +88,9 @@ std::vector<ProviderInfo> builtin() {
                      {paid("gpt-5.5", "GPT 5.5", 272'000, 32'000, 5, 30), paid("gpt-5.4-mini", "GPT 5.4 Mini", 272'000, 32'000, 0.75, 4.5)}));
   out.push_back(make("google", "Google Gemini", Api::openai_chat, "https://generativelanguage.googleapis.com/v1beta/openai",
                      {"GEMINI_API_KEY", "GOOGLE_API_KEY"}, "https://aistudio.google.com/apikey",
-                     {paid("gemini-3.1-pro", "Gemini 3.1 Pro", 1'000'000, 64'000, 2, 12),
-                      paid("gemini-3.5-flash", "Gemini 3.5 Flash", 1'000'000, 64'000, 1.5, 9)}));
+                     {paid("gemini-3.5-flash", "Gemini 3.5 Flash", 1'000'000, 64'000, 1.5, 9),
+                      paid("gemini-3.1-pro-preview", "Gemini 3.1 Pro", 1'000'000, 64'000, 2, 12),
+                      paid("gemini-2.5-flash", "Gemini 2.5 Flash", 1'000'000, 64'000, 0.3, 2.5)}));
   out.push_back(make("openrouter", "OpenRouter", Api::openai_chat, "https://openrouter.ai/api/v1", {"OPENROUTER_API_KEY"},
                      "https://openrouter.ai/keys"));
   out.back().headers = {{"HTTP-Referer", "https://github.com/nikolas-chambers/shaman-cli"}, {"X-Title", "shaman-cli"}};
@@ -151,8 +160,11 @@ Result<std::vector<ModelInfo>> refresh(const ProviderInfo& p, const std::string&
 
   std::vector<ModelInfo> out;
   try {
-    for (auto& m : Json::parse(res->body).at("data")) {
+    auto payload = Json::parse(res->body);  // named: iterating a member of a temporary would dangle
+    for (auto& m : payload.at("data")) {
       std::string id = m.at("id");
+      if (id.starts_with("models/")) id = id.substr(7);  // Gemini prefixes ids
+      if (!chat_model(id)) continue;
       ModelInfo info{id, m.value("display_name", m.value("name", id))};
       // Zen marks free models by id; everything else is assumed paid.
       info.is_free = p.public_key && (id == "big-pickle" || id.ends_with("-free"));

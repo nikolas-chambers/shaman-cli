@@ -72,3 +72,20 @@ TEST(openai_body_roundtrip) {
   CHECK_EQ(m[3]["tool_call_id"].get<std::string>(), std::string("c1"));
   CHECK(body["stream"].get<bool>());
 }
+
+TEST(openai_thought_signature_roundtrip) {
+  provider::OpenAIChatDecoder d;
+  llm::ToolCallPart call;
+  auto sink = [&](const llm::StreamEvent& ev) {
+    if (auto* c = std::get_if<llm::ToolCallEvent>(&ev)) call = c->call;
+  };
+  d.feed(Json::parse(R"({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"a","extra_content":{"google":{"thought_signature":"SIG"}},
+         "function":{"name":"ls","arguments":"{}"}}]}}]})"), sink);
+  d.finish(sink);
+  CHECK_EQ(call.meta["extra_content"]["google"]["thought_signature"].get<std::string>(), std::string("SIG"));
+  llm::ChatRequest req;
+  req.messages.push_back({llm::Role::assistant, {call}});
+  auto body = provider::openai_chat_body(req);
+  CHECK_EQ(body["messages"][0]["tool_calls"][0]["extra_content"]["google"]["thought_signature"].get<std::string>(), std::string("SIG"));
+  CHECK_EQ(llm::message_from_json(llm::to_json(req.messages[0])).tool_calls()[0].meta, call.meta);  // persisted
+}

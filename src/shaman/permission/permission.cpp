@@ -79,7 +79,6 @@ Json Rules::to_json() const {
 }
 
 bool Gate::check(const Request& req) {
-  if (yolo_) return true;
   if (hook_)
     if (auto a = hook_(req)) {
       log::debug(log::Cat::permission, "{} '{}' -> {} (plugin)", req.permission, req.subject, to_string(*a));
@@ -90,7 +89,9 @@ bool Gate::check(const Request& req) {
     case Action::deny:
       log::trace("permission", {{"permission", req.permission}, {"subject", req.subject}, {"result", "deny"}});
       return false;
-    case Action::ask: break;
+    case Action::ask:
+      if (yolo_) return true;
+      break;
   }
   if (always_.contains({req.permission, req.subject}) || always_.contains({req.permission, "*"})) return true;
   Reply reply = asker_ ? asker_(req) : Reply::reject;

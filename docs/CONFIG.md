@@ -15,7 +15,7 @@ JSONC is accepted (comments, trailing commas). Any string may use `{env:NAME}` o
   "default_agent": "build",
   "free_fallback": true,                    // rate-limited free model -> next free model
   "snapshot": true,                         // git-backed /undo of file changes
-  "instructions": ["docs/CONVENTIONS.md"],  // AGENTS.md, SHAMAN.md or CLAUDE.md load automatically
+  "instructions": ["docs/CONVENTIONS.md"],  // SHAMAN.md or AGENTS.md load automatically
 
   // allow | ask | deny, per permission, optionally per subject pattern (most specific wins)
   "permission": {

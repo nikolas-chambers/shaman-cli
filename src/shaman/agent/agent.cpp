@@ -63,7 +63,7 @@ Registry::Registry(const Config& config, const fs::path& root) {
   apply("build", {{"description", "Default agent. Full tool access; edits and commands ask first."}}, "builtin");
   apply("plan", {{"description", "Read-only planning. Explores and proposes, never edits."},
                  {"prompt", prompts::plan},
-                 {"tools", {{"write", false}, {"edit", false}}},
+                 {"tools", {{"write", false}, {"edit", false}, {"apply_patch", false}}},
                  {"permission", {{"edit", "deny"}, {"bash", {{"*", "deny"}, {"git diff*", "allow"}, {"git log*", "allow"},
                                                               {"git status*", "allow"}, {"ls*", "allow"}}}}}},
         "builtin");

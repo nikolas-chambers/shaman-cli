@@ -46,7 +46,12 @@ Add a key for anything else: `shaman auth login anthropic`, or set `ANTHROPIC_AP
 | `shaman upgrade` | Self-update from GitHub releases |
 
 Agents: `build` (default), `plan` (read-only), and subagents `explore` and `general`. Add your own in
-`.shaman/agents/*.md`, commands in `.shaman/commands/*.md`, skills in `.shaman/skills/*/SKILL.md`.
+`.shaman/agents/*.md` and commands in `.shaman/commands/*.md`.
+
+Skills: 23 built in, loaded only when relevant: code-review, debugging, testing, git-workflow, refactoring,
+security-review, performance, documentation, api-design, dependency-upgrade, migrations, frontend-ui,
+webapp-testing, data-analysis, research, ci-cd, docker, mcp-builder, skill-creator, and pdf / docx / xlsx / pptx
+with helper scripts. Add your own in `.shaman/skills/<name>/SKILL.md` (`shaman debug skills` lists them).
 
 Tools: `read write edit apply_patch list glob grep bash webfetch websearch lsp skill task todowrite todoread`, plus
 MCP and plugin tools. After every edit shaman runs the project's formatter and reports language-server errors.
@@ -87,7 +92,7 @@ traces · an offline test suite driving the real binary against mock model, MCP 
 
 ## Status
 
-Tested on Linux: 26 unit tests and 59 end-to-end checks, plus the web UI in Chromium, the TUI in xterm and the desktop app under X11. macOS and Windows builds are set up in CI but not yet
+Tested on Linux: 27 unit tests, 62 offline end-to-end checks, and a live suite (`tests/e2e/live.sh`) passing on Gemini 3.1 and 3.5 Flash-Lite, plus the web UI in Chromium, the TUI in xterm and the desktop app under X11. macOS and Windows builds are set up in CI but not yet
 verified; the Windows desktop app and MCP stdio servers on Windows are untested.
 
 ## Development

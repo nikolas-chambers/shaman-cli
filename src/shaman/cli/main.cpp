@@ -33,42 +33,62 @@ void on_sigint(int) {
 
 constexpr const char* kHelp = R"(shaman - a coding agent for your terminal
 
-usage:
-  shaman [message]                 full-screen UI (optionally starting with a message)
-  shaman run [message]             one-shot; also reads piped stdin
-  shaman serve                     HTTP API + web UI        shaman web     serve and open the browser
-  shaman acp                       Agent Client Protocol on stdio (Zed and other editors)
+usage: shaman [command] [options]
 
-  shaman models [--refresh] [--all]            shaman auth login|list|logout [provider]
-  shaman agents | agent create <name>          shaman sessions
-  shaman export [id] [--format md|json|html] [-o file]
-  shaman import <file>   shaman share [id]     shaman stats [--days N]
-  shaman mcp list|auth <name>|logout <name>|serve
-  shaman plugins                               shaman pr <number>
-  shaman github install|run [--dry-run]        shaman upgrade [version] [--check]
-  shaman debug config|paths|models|agents|tools|prompt|permission|session|lsp|skills|commands|plugins
-  shaman version
+commands:
+  (none) [message]          full-screen UI, optionally starting with a message
+  run [message]             one-shot run; also reads piped stdin
+  serve                     HTTP API and web UI
+  web                       serve on a free port and open the browser
+  acp                       Agent Client Protocol on stdio (Zed and other editors)
+  models [--refresh|--all]  list models
+  auth login [provider]     save an API key
+  auth list                 show where each provider's key comes from
+  auth logout <provider>    remove a saved key
+  agents                    list agents
+  agent create <name>       scaffold .shaman/agents/<name>.md
+  sessions                  list sessions for this project
+  export [id]               print a session (--format md|json|html, -o file)
+  import <file>             import a session exported as JSON
+  share [id]                write a shareable HTML page
+  stats [--days N]          token, cost and tool usage
+  mcp list                  MCP servers and their status
+  mcp auth <name>           log in to an OAuth-protected MCP server
+  mcp logout <name>         forget MCP tokens
+  mcp serve                 expose shaman's tools as an MCP server
+  plugins                   list loaded plugins
+  pr <number>               check out a pull request and start a session
+  github install            add the /shaman GitHub Actions workflow
+  github run [--dry-run]    handle a /shaman comment (inside Actions)
+  upgrade [version]         self-update (--check to only check)
+  debug <what>              config paths models agents tools prompt permission
+                            session lsp skills commands plugins
+  version                   print the version
 
 options:
-  -m, --model <provider/model>     model (default: best free model)
-  -a, --agent <name>               agent (default: build)
-  -c, --continue                   continue the most recent session
-  -s, --session <id>               continue a specific session
-  -f, --file <path>                attach a file or image (repeatable via @mentions too)
-      --command <name>             run a custom command (message becomes its arguments)
-      --attach <url>               run against a `shaman serve` instance
-      --format <text|json>         run output format
-      --yolo                       allow every tool call without asking
-      --reasoning                  show model reasoning when available
-      --plain                      line-based interface instead of full-screen
-      --no-mcp                     skip MCP servers and plugins
-      --port <n> --host <h> --token <t>   serve/web options
-      --debug[=cats]               debug log: all, or config,provider,http,sse,tool,permission,session,agent,mcp
-      --log-file <path>            write debug log to a file instead of stderr
-      --trace <path>               record every request/event/tool call as JSONL
+  -m, --model <provider/model>   model (default: best free model)
+  -a, --agent <name>             agent (default: build)
+  -c, --continue                 continue the most recent session
+  -s, --session <id>             continue a specific session
+  -f, --file <path>              attach files or images (comma-separated)
+      --command <name>           run a custom command; the message is its arguments
+      --attach <url>             run against a `shaman serve` instance
+      --format <text|json>       output format for run
+      --yolo                     auto-approve every "ask" (explicit denies still apply)
+      --reasoning                show model reasoning when available
+      --plain                    line-based interface instead of full-screen
+      --no-mcp                   skip MCP servers and plugins
+      --port <n>                 serve/web port
+      --host <addr>              serve/web address (default 127.0.0.1)
+      --token <t>                require this bearer token for the API
+      --debug[=categories]       debug log: all, or any of config provider http sse
+                                 tool permission session agent mcp
+      --log-file <path>          write the debug log to a file
+      --trace <path>             record every request, event and tool call as JSONL
 
 environment:
-  SHAMAN_DEBUG, SHAMAN_MODEL, SHAMAN_CONFIG, SHAMAN_CONFIG_CONTENT, OPENCODE_API_KEY, ANTHROPIC_API_KEY, ...
+  SHAMAN_MODEL, SHAMAN_DEBUG, SHAMAN_CONFIG, SHAMAN_CONFIG_CONTENT,
+  OPENCODE_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, ...
 )";
 
 void open_browser(const std::string& url) {

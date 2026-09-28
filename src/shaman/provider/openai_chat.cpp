@@ -36,9 +36,11 @@ Json openai_chat_body(const ChatRequest& req) {
     auto text = m.text();
     msg["content"] = text.empty() ? Json(nullptr) : Json(text);
     Json calls = Json::array();
-    for (auto& c : m.tool_calls())
-      calls.push_back({{"id", c.id}, {"type", "function"},
-                       {"function", {{"name", c.name}, {"arguments", c.input.dump()}}}});
+    for (auto& c : m.tool_calls()) {
+      Json call = {{"id", c.id}, {"type", "function"}, {"function", {{"name", c.name}, {"arguments", c.input.dump()}}}};
+      if (c.meta.is_object() && c.meta.contains("extra_content")) call["extra_content"] = c.meta["extra_content"];
+      calls.push_back(call);
+    }
     if (!calls.empty()) msg["tool_calls"] = calls;
     messages.push_back(msg);
   }
@@ -81,6 +83,7 @@ void OpenAIChatDecoder::feed(const Json& chunk, const EventSink& sink) {
       for (auto& tc : *tcs) {
         auto& call = calls_[tc.value("index", 0)];
         if (auto id = tc.find("id"); id != tc.end() && id->is_string()) call.id = *id;
+        if (auto ex = tc.find("extra_content"); ex != tc.end() && ex->is_object()) call.extra = *ex;
         if (auto f = tc.find("function"); f != tc.end()) {
           if (auto n = f->find("name"); n != f->end() && n->is_string()) call.name += n->get<std::string>();
           if (auto a = f->find("arguments"); a != f->end() && a->is_string()) call.args += a->get<std::string>();
@@ -109,7 +112,8 @@ void OpenAIChatDecoder::finish(const EventSink& sink) {
         input = {{"__invalid_json", c.args}};
       }
     }
-    sink(ToolCallEvent{{c.id.empty() ? "call_" + std::to_string(index) : c.id, c.name, input}});
+    Json meta = c.extra.is_null() ? Json() : Json{{"extra_content", c.extra}};
+    sink(ToolCallEvent{{c.id.empty() ? "call_" + std::to_string(index) : c.id, c.name, input, meta}});
   }
   if (!calls_.empty() && finish_ != Finish::length) finish_ = Finish::tool_calls;
   calls_.clear();

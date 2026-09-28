@@ -83,13 +83,15 @@ Result<Runner::Turn> Runner::complete(provider::Resolved& model, const ChatReque
     auto provider = model.connect();
     for (int attempt = 0; attempt < 3; ++attempt) {
       if (s_.cancel && s_.cancel->load()) return fail("cancelled");
-      if (attempt > 0) {
+      if (attempt > 0 && last.message != "empty response from model") {
         auto wait = std::chrono::seconds(1 << attempt);
         events.notice(std::format("retrying in {}s: {}", wait.count(), last.message));
         std::this_thread::sleep_for(wait);
       }
       ChatRequest req = base;
       req.model = model.model.id;
+      if (attempt > 0 && last.message == "empty response from model")  // identical retries tend to come back empty too
+        req.messages.push_back(Message::user("(Your previous reply was empty. Continue with the task, using tools as needed.)"));
       Turn turn;
       std::string text, reasoning;
       auto flush = [&] {
@@ -106,6 +108,12 @@ Result<Runner::Turn> Runner::complete(provider::Resolved& model, const ChatReque
         else if (auto* f = std::get_if<FinishEvent>(&ev)) turn.finish = f->reason;
       });
       flush();
+      if (r && turn.message.parts.empty() && attempt < 2) {
+        // Some models occasionally return an empty completion; one retry almost always fixes it.
+        last = Error{"empty response from model", 0, true};
+        log::debug(log::Cat::provider, "{} returned nothing; retrying", model.ref());
+        continue;
+      }
       if (r) return turn;
       last = r.error();
       log::debug(log::Cat::provider, "{} attempt {} failed: {}", model.ref(), attempt + 1, last.message);

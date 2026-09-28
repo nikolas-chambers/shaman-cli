@@ -38,7 +38,16 @@ add_custom_command(
   DEPENDS ${CMAKE_SOURCE_DIR}/web/index.html ${CMAKE_SOURCE_DIR}/cmake/embed.cmake
   COMMENT "Embedding web UI")
 
-add_library(shaman_core STATIC ${SHAMAN_SOURCES} ${SHAMAN_WEB_CPP})
+# Built-in skills (skills/*/SKILL.md) are compiled in as well.
+file(GLOB_RECURSE SHAMAN_SKILL_FILES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/skills/*)
+set(SHAMAN_SKILLS_CPP ${CMAKE_BINARY_DIR}/generated/skills.cpp)
+add_custom_command(
+  OUTPUT ${SHAMAN_SKILLS_CPP}
+  COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR}/skills -DOUT=${SHAMAN_SKILLS_CPP} -P ${CMAKE_SOURCE_DIR}/cmake/embed_skills.cmake
+  DEPENDS ${SHAMAN_SKILL_FILES} ${CMAKE_SOURCE_DIR}/cmake/embed_skills.cmake
+  COMMENT "Embedding built-in skills")
+
+add_library(shaman_core STATIC ${SHAMAN_SOURCES} ${SHAMAN_WEB_CPP} ${SHAMAN_SKILLS_CPP})
 target_include_directories(shaman_core PUBLIC src)
 target_link_libraries(shaman_core PUBLIC CURL::libcurl OpenSSL::Crypto nlohmann_json::nlohmann_json)
 if(WIN32)

@@ -34,7 +34,8 @@ Result<std::vector<Hit>> search(const std::string& query, int limit, std::atomic
     if (!res) return std::unexpected(res.error());
     if (res->status != 200) return fail(std::format("Brave search HTTP {}", res->status));
     try {
-      for (auto& r : Json::parse(res->body)["web"]["results"])
+      auto payload = Json::parse(res->body);
+      for (auto& r : payload["web"]["results"])
         hits.push_back({r.value("title", ""), r.value("url", ""), strip_tags(r.value("description", ""))});
     } catch (const Json::exception& e) {
       return fail(std::string("bad search response: ") + e.what());
@@ -109,15 +110,16 @@ class SkillTool final : public Tool {
     for (auto& s : skills_) {
       if (s.name != name) continue;
       if (!ctx.permit("skill", name, "Load skill " + name)) return error("permission denied");
-      return {std::format("<skill name=\"{}\" dir=\"{}\">\n{}\n</skill>\nPaths in the skill are relative to its dir.",
-                          s.name, s.dir.string(), s.body),
+      return {std::format("<skill name=\"{}\" dir=\"{}\">\n{}\n</skill>\nScripts and files mentioned above live in {} "
+                          "(run them with their full path).",
+                          s.name, s.dir.string(), s.body, s.dir.string()),
               false, "Skill " + name};
     }
     return error("no such skill: " + name);
   }
 
  private:
-  std::vector<skill::Skill> skills_;
+  const std::vector<skill::Skill>& skills_;
 };
 
 }  // namespace

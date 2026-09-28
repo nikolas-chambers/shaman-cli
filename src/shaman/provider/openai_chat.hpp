@@ -19,6 +19,7 @@ class OpenAIChatDecoder {
  private:
   struct PendingCall {
     std::string id, name, args;
+    Json extra;  // "extra_content" (Gemini thought_signature), returned verbatim next turn
   };
   std::map<int, PendingCall> calls_;
   std::optional<llm::Usage> usage_;

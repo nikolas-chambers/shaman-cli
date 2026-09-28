@@ -84,6 +84,7 @@ if(SHAMAN_BUILD_DESKTOP)
 endif()
 
 # --- tests -------------------------------------------------------------------
+find_program(PYTHON3 python3)
 if(SHAMAN_BUILD_TESTS)
   enable_testing()
   file(GLOB SHAMAN_TESTS CONFIGURE_DEPENDS tests/unit/*.cpp)
@@ -92,9 +93,15 @@ if(SHAMAN_BUILD_TESTS)
   add_test(NAME unit COMMAND shaman_tests)
 
   # End-to-end: the real binary against tests/mock/mock_zen.py (POSIX + python3).
-  find_program(PYTHON3 python3)
   find_program(BASH bash)
   if(PYTHON3 AND BASH AND NOT WIN32)
     add_test(NAME e2e COMMAND ${BASH} ${CMAKE_SOURCE_DIR}/tests/e2e/run.sh $<TARGET_FILE:shaman>)
   endif()
+endif()
+
+# Static documentation site for GitHub Pages: cmake --build build --target site
+if(PYTHON3)
+  add_custom_target(site
+    COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/tools/site.py --src ${CMAKE_SOURCE_DIR} --out ${CMAKE_BINARY_DIR}/site
+    COMMENT "Building documentation site")
 endif()

@@ -1,5 +1,7 @@
 # shaman-cli
 
+**Docs: <https://nikolas-chambers.github.io/shaman-cli/>**
+
 A coding agent for your terminal, written in C++. A from-scratch rewrite of the
 [opencode](https://github.com/anomalyco/opencode) CLI: one native binary, no runtime, free models out of the box.
 

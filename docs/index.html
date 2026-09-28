@@ -23,9 +23,11 @@ header.top .brand { display:flex; align-items:center; gap:10px; font-weight:700;
 header.top .brand img { width:30px; height:30px; border-radius:8px; }
 header.top nav a { color:var(--muted); margin-left:20px; font-size:15px; }
 header.top nav a:hover { color:var(--fg); text-decoration:none; }
-.hero { padding:28px 0 56px; text-align:center; }
-.hero .banner { width:100%; border-radius:14px; border:1px solid var(--line); box-shadow:0 0 60px rgba(34,228,240,.08); }
-.hero h1 { font-size:clamp(26px,4vw,40px); line-height:1.2; margin:34px 0 10px; }
+.bannerwrap { background:var(--bg); }
+.bannerwrap .banner { width:100%; display:block; }
+.hero { padding:0 0 56px; text-align:center; }
+.hero .logo { width:104px; border-radius:26px; margin:40px auto 0; display:block; }
+.hero h1 { font-size:clamp(26px,4vw,40px); line-height:1.2; margin:24px 0 10px; }
 .hero p.lead { color:var(--muted); font-size:clamp(16px,2vw,19px); max-width:640px; margin:0 auto 26px; }
 .cta { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
 .btn { display:inline-block; padding:11px 22px; border-radius:10px; font-weight:600; border:1px solid var(--line); color:var(--fg); background:var(--panel); }
@@ -46,9 +48,6 @@ section p.sub { color:var(--muted); margin:0 0 28px; }
 .shots figure { margin:0; }
 .shots img { width:100%; border-radius:10px; border:1px solid var(--line); display:block; }
 .shots figcaption { color:var(--muted); font-size:14px; margin-top:8px; }
-.split { display:grid; grid-template-columns:200px 1fr; gap:32px; align-items:center; }
-.split img { width:100%; max-width:200px; border-radius:24px; }
-.split > div { min-width:0; }  /* let wide code blocks scroll instead of stretching the grid */
 code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.92em; background:var(--panel); border:1px solid var(--line);
   padding:1px 6px; border-radius:6px; }
 footer { border-top:1px solid var(--line); padding:32px 0 48px; color:var(--muted); font-size:14px; }
@@ -57,12 +56,13 @@ footer .coffee strong { color:var(--fg); }
 @media (max-width:640px) {
   header.top nav a { margin-left:14px; }
   header.top nav a.hide-sm { display:none; }
-  .split { grid-template-columns:1fr; text-align:center; }
-  .split img { margin:0 auto; max-width:140px; }
 }
 </style>
 </head>
 <body>
+<div class="bannerwrap">
+  <img class="banner" src="assets/banner.png" alt="shaman-cli: powerful, flexible, open source">
+</div>
 <div class="wrap">
   <header class="top">
     <a class="brand" href="#"><img src="assets/icon-192.png" alt="">shaman-cli</a>
@@ -75,7 +75,7 @@ footer .coffee strong { color:var(--fg); }
   </header>
 
   <div class="hero">
-    <img class="banner" src="assets/banner.png" alt="shaman-cli: powerful, flexible, open source">
+    <img class="logo" src="assets/logo.png" alt="shaman-cli logo">
     <h1>A coding agent for your terminal</h1>
     <p class="lead">One native C++ binary. Free models out of the box, any provider with a key. Reads, edits, runs and verifies your code.</p>
     <div class="cta">
@@ -118,19 +118,16 @@ footer .coffee strong { color:var(--fg); }
 </section>
 
 <section id="install">
-  <div class="wrap split">
-    <img src="assets/logo.png" alt="shaman-cli logo">
-    <div>
-      <h2>Install</h2>
-      <p class="sub">Build from source with CMake and a C++23 compiler.</p>
-      <pre class="term" style="margin:0;max-width:none"><span class="c"># Debian/Ubuntu: apt install cmake ninja-build libcurl4-openssl-dev libssl-dev nlohmann-json3-dev</span>
+  <div class="wrap">
+    <h2>Install</h2>
+    <p class="sub">Build from source with CMake and a C++23 compiler.</p>
+    <pre class="term" style="margin:0"><span class="c"># Debian/Ubuntu: apt install cmake ninja-build libcurl4-openssl-dev libssl-dev nlohmann-json3-dev</span>
 <span class="c"># macOS:         brew install cmake ninja curl openssl nlohmann-json</span>
 <span class="p">$ </span>git clone https://github.com/nikolas-chambers/shaman-cli
-<span class="p">$ </span>cd shaman-cli && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-<span class="p">$ </span>cmake --build build && sudo cmake --install build</pre>
-      <p style="color:var(--muted);margin-top:14px">Docs: <a href="https://github.com/nikolas-chambers/shaman-cli#readme">README</a> ·
-        <a href="config.html">Config</a> · <a href="server.html">HTTP API</a> · <a href="plugins.html">Plugins</a> · <a href="architecture.html">Architecture</a></p>
-    </div>
+<span class="p">$ </span>cd shaman-cli &amp;&amp; cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+<span class="p">$ </span>cmake --build build &amp;&amp; sudo cmake --install build</pre>
+    <p style="color:var(--muted);margin-top:14px">Docs: <a href="https://github.com/nikolas-chambers/shaman-cli#readme">README</a> ·
+      <a href="config.html">Config</a> · <a href="server.html">HTTP API</a> · <a href="plugins.html">Plugins</a> · <a href="architecture.html">Architecture</a></p>
   </div>
 </section>
 

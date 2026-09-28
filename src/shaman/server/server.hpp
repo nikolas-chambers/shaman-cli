@@ -22,11 +22,20 @@
 //   POST   /session/:id/message             {"text", "model"?, "agent"?, "files"?} -> SSE stream
 //   POST   /session/:id/abort               cancel the running turn
 //   POST   /session/:id/undo | /compact
+//   GET    /session/:id/turns                user turns (for revert/fork)
+//   POST   /session/:id/revert {"turn": n}   back to before turn n (files restored)
+//   POST   /session/:id/fork   {"turn"?: n}  new session up to turn n
 //   POST   /permission/:id                  {"reply": "once"|"always"|"reject"}
+//   POST   /question/:id                    {"answer": "..."} (question tool)
 //   GET    /event                           SSE stream of every session's events
+//   GET    /info                            project path, default model, version
+//   POST   /upload?name=f.png               raw body -> {"path"} to pass in "files"
+//   POST   /session/:id/title {"title"}     rename
+//   GET    /session/:id/share               self-contained HTML page
+//   message body may use {"command": "name", "arguments": "..."} for custom commands
 //
 // Stream events: text, reasoning, tool_start, tool_end, step, notice,
-// permission, done, error. See docs/SERVER.md and sdk/.
+// permission, question, done, error. See docs/SERVER.md and sdk/.
 namespace shaman::server {
 
 struct Options {

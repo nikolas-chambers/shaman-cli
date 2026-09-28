@@ -3,6 +3,8 @@
 #include "shaman/core/log.hpp"
 #include "shaman/core/strings.hpp"
 
+#include <cstring>
+
 namespace shaman::permission {
 
 std::string_view to_string(Action a) {
@@ -19,6 +21,7 @@ Rules Rules::defaults() {
   return from_json({
       {"read", "allow"}, {"list", "allow"}, {"glob", "allow"}, {"grep", "allow"},
       {"todo", "allow"}, {"task", "allow"}, {"skill", "allow"}, {"lsp", "allow"}, {"websearch", "allow"},
+      {"memory", "allow"}, {"http", {{"*", "ask"}, {"GET http://localhost*", "allow"}, {"GET http://127.0.0.1*", "allow"}}},
       {"edit", "ask"}, {"webfetch", "ask"}, {"external_directory", "ask"}, {"mcp", "ask"}, {"plugin", "ask"},
       {"doom_loop", "ask"},
       {"bash", {
@@ -70,6 +73,130 @@ Action Rules::evaluate(std::string_view permission, std::string_view subject) co
   return a;
 }
 
+ShellAnalysis analyze_shell(const std::string& cmd) {
+  ShellAnalysis a;
+  std::string cur;
+  auto push = [&] {
+    auto t = str::trim(cur);
+    if (!t.empty()) a.commands.push_back(t);
+    cur.clear();
+  };
+  char quote = 0;
+  for (size_t i = 0; i < cmd.size(); ++i) {
+    char c = cmd[i];
+    if (quote) {
+      if (c == '\\' && quote == '"' && i + 1 < cmd.size()) {
+        cur += c;
+        cur += cmd[++i];
+        continue;
+      }
+      if (quote == '"' && (c == '`' || (c == '$' && i + 1 < cmd.size() && cmd[i + 1] == '('))) a.substitution = true;
+      if (c == quote) quote = 0;
+      cur += c;
+      continue;
+    }
+    if (c == '\'' || c == '"') {
+      quote = c;
+      cur += c;
+      continue;
+    }
+    if (c == '\\' && i + 1 < cmd.size()) {
+      cur += c;
+      cur += cmd[++i];
+      continue;
+    }
+    if (c == '`' || (c == '$' && i + 1 < cmd.size() && cmd[i + 1] == '(') ||
+        ((c == '<' || c == '>') && i + 1 < cmd.size() && cmd[i + 1] == '('))
+      a.substitution = true;
+    if (c == '<' && i + 1 < cmd.size() && cmd[i + 1] == '<' && !(i + 2 < cmd.size() && cmd[i + 2] == '<')) {
+      // heredoc: skip its body (data, not commands); keep the rest of the line
+      size_t j = i + 2;
+      if (j < cmd.size() && cmd[j] == '-') ++j;
+      while (j < cmd.size() && std::isspace(static_cast<unsigned char>(cmd[j])) && cmd[j] != '\n') ++j;
+      size_t start = j;
+      while (j < cmd.size() && !std::isspace(static_cast<unsigned char>(cmd[j])) && std::string_view(";&|<>").find(cmd[j]) == std::string_view::npos) ++j;
+      std::string delim = cmd.substr(start, j - start);
+      std::erase_if(delim, [](char ch) { return ch == '\'' || ch == '"' || ch == '\\'; });
+      auto eol = cmd.find('\n', j);
+      // The rest of the heredoc's first line is still shell (e.g. `> file && cat file`).
+      auto rest = analyze_shell(cmd.substr(j, (eol == std::string::npos ? cmd.size() : eol) - j));
+      a.writes = a.writes || rest.writes;
+      a.substitution = a.substitution || rest.substitution;
+      cur += cmd.substr(i, j - i);
+      if (!rest.commands.empty()) {
+        cur += " " + rest.commands.front();
+        push();
+        a.commands.insert(a.commands.end(), rest.commands.begin() + 1, rest.commands.end());
+      }
+      if (eol == std::string::npos) break;
+      size_t pos = eol + 1;  // find the terminator line
+      while (pos < cmd.size()) {
+        auto next = cmd.find('\n', pos);
+        auto line = str::trim(cmd.substr(pos, next == std::string::npos ? std::string::npos : next - pos));
+        pos = next == std::string::npos ? cmd.size() : next + 1;
+        if (line == delim) break;
+      }
+      i = pos - 1;
+      push();
+      continue;
+    }
+    if (c == '>') {
+      // Output redirection. Harmless forms: >/dev/null, 2>&1, >&2.
+      size_t j = i + 1;
+      if (j < cmd.size() && (cmd[j] == '>' || cmd[j] == '|')) ++j;
+      if (j < cmd.size() && cmd[j] == '&') {
+        cur += cmd.substr(i, j + 1 - i);
+        i = j;
+        continue;  // >&2 / 2>&1
+      }
+      while (j < cmd.size() && cmd[j] == ' ') ++j;
+      if (cmd.compare(j, 9, "/dev/null") != 0) a.writes = true;
+      cur += c;
+      continue;
+    }
+    if (c == '&' && i + 1 < cmd.size() && cmd[i + 1] == '>') {  // &> file
+      a.writes = true;
+      cur += c;
+      continue;
+    }
+    if (c == ';' || c == '\n' || c == '|' || c == '&') {
+      push();
+      if (i + 1 < cmd.size() && (cmd[i + 1] == '|' || cmd[i + 1] == '&') && c != ';' && c != '\n') ++i;
+      continue;
+    }
+    cur += c;
+  }
+  push();
+  for (auto& c : a.commands)
+    if (c.starts_with("tee ") || c == "tee" || (c.starts_with("sed") && c.find(" -i") != std::string::npos)) a.writes = true;
+  return a;
+}
+
+Action Rules::evaluate_shell(std::string_view permission, const std::string& command) const {
+  auto full = evaluate(permission, command);
+  if (full == Action::deny) return Action::deny;
+  auto a = analyze_shell(command);
+  Action worst = a.commands.empty() ? full : Action::allow;
+  for (auto& c : a.commands) {
+    auto r = evaluate(permission, c);
+    if (r == Action::deny) return Action::deny;
+    // Wrappers must not dodge deny rules: `sudo rm -rf /` is checked as `rm -rf /` too.
+    std::string inner = c;
+    for (bool again = true; again;) {
+      again = false;
+      for (auto w : {"sudo ", "env ", "nohup ", "time ", "command ", "exec "})
+        if (inner.starts_with(w)) inner = str::trim(inner.substr(std::strlen(w))), again = true;
+    }
+    if (inner != c && evaluate(permission, inner) == Action::deny) return Action::deny;
+    if (r == Action::ask) worst = Action::ask;
+  }
+  if ((a.writes || a.substitution) && worst == Action::allow) {
+    log::debug(log::Cat::permission, "{} '{}': writes or substitution; asking", permission, command);
+    worst = Action::ask;
+  }
+  return worst;
+}
+
 Json Rules::to_json() const {
   Json out = Json::array();
   for (auto& r : rules_)
@@ -84,7 +211,8 @@ bool Gate::check(const Request& req) {
       log::debug(log::Cat::permission, "{} '{}' -> {} (plugin)", req.permission, req.subject, to_string(*a));
       if (*a != Action::ask) return *a == Action::allow;
     }
-  switch (rules_.evaluate(req.permission, req.subject)) {
+  auto action = req.permission == "bash" ? rules_.evaluate_shell(req.permission, req.subject) : rules_.evaluate(req.permission, req.subject);
+  switch (action) {
     case Action::allow: return true;
     case Action::deny:
       log::trace("permission", {{"permission", req.permission}, {"subject", req.subject}, {"result", "deny"}});

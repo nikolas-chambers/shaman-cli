@@ -63,16 +63,17 @@ Registry::Registry(const Config& config, const fs::path& root) {
   apply("build", {{"description", "Default agent. Full tool access; edits and commands ask first."}}, "builtin");
   apply("plan", {{"description", "Read-only planning. Explores and proposes, never edits."},
                  {"prompt", prompts::plan},
-                 {"tools", {{"write", false}, {"edit", false}, {"apply_patch", false}}},
+                 {"tools", {{"write", false}, {"edit", false}, {"apply_patch", false}, {"multiedit", false}, {"notebook_edit", false}}},
                  {"permission", {{"edit", "deny"}, {"bash", {{"*", "deny"}, {"git diff*", "allow"}, {"git log*", "allow"},
                                                               {"git status*", "allow"}, {"ls*", "allow"}}}}}},
         "builtin");
   apply("explore", {{"description", "Fast read-only codebase search."}, {"mode", "subagent"},
                     {"prompt", prompts::explore}, {"max_steps", 40},
-                    {"tools", {{"*", false}, {"read", true}, {"glob", true}, {"grep", true}, {"list", true}}}},
+                    {"tools", {{"*", false}, {"read", true}, {"glob", true}, {"grep", true}, {"list", true}, {"batch", true}, {"lsp", true}}}},
         "builtin");
   apply("general", {{"description", "General-purpose subagent for multi-step tasks."}, {"mode", "subagent"},
-                    {"prompt", prompts::general}, {"tools", {{"task", false}, {"todowrite", false}, {"todoread", false}}}},
+                    {"prompt", prompts::general},
+                    {"tools", {{"task", false}, {"task_output", false}, {"todowrite", false}, {"todoread", false}, {"question", false}}}},
         "builtin");
 
   for (auto& [name, spec] : config.agent.items()) apply(name, spec, "config");

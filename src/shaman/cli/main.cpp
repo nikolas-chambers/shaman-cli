@@ -50,6 +50,7 @@ commands:
   sessions                  list sessions for this project
   export [id]               print a session (--format md|json|html, -o file)
   import <file>             import a session exported as JSON
+  fork [id] [--turn N]      copy a session (up to turn N) into a new one
   share [id]                write a shareable HTML page
   stats [--days N]          token, cost and tool usage
   mcp list                  MCP servers and their status
@@ -61,6 +62,10 @@ commands:
   github install            add the /shaman GitHub Actions workflow
   github run [--dry-run]    handle a /shaman comment (inside Actions)
   upgrade [version]         self-update (--check to only check)
+  worktree <name> [message] work in an isolated git worktree (list | remove <name>)
+  schedule add "<cron>" <p> run a prompt on a schedule via cron (list | remove <id>)
+  doctor                    check setup: keys, network, tools, language servers
+  completion bash|zsh|fish  print a shell completion script
   debug <what>              config paths models agents tools prompt permission
                             session lsp skills commands plugins
   version                   print the version
@@ -73,6 +78,7 @@ options:
   -f, --file <path>              attach files or images (comma-separated)
       --command <name>           run a custom command; the message is its arguments
       --attach <url>             run against a `shaman serve` instance
+      --goal <text>              keep working until this goal is verified done
       --format <text|json>       output format for run
       --yolo                     auto-approve every "ask" (explicit denies still apply)
       --reasoning                show model reasoning when available
@@ -110,6 +116,7 @@ Options options_from(const Args& args) {
   o.session = args.get("session");
   o.command = args.get("command");
   o.attach = args.get("attach");
+  o.goal = args.get("goal");
   if (auto f = args.get("file")) o.files = str::split(*f, ',');
   o.cont = args.has("continue");
   o.yolo = args.has("yolo");
@@ -137,6 +144,7 @@ int main(int argc, char** argv) {
   if (args.has("help") || cmd == "help") return std::cout << kHelp, 0;
   if (args.has("version") || cmd == "version") return std::cout << "shaman " << kVersion << "\n", 0;
   if (cmd == "upgrade") return update::upgrade(pos.size() > 1 ? pos[1] : "", args.has("check"));
+  if (cmd == "completion") return cmd_completion(args);
   if (cmd == "github" && pos.size() > 1 && pos[1] == "install") {
     std::error_code ec;
     return github::install(paths::project_root(std::filesystem::current_path(ec)));
@@ -149,7 +157,8 @@ int main(int argc, char** argv) {
   if (cmd == "run" && o.attach) return cmd_attach(o, str::join({pos.begin() + 1, pos.end()}, " "));
 
   static const std::set<std::string> known{"run", "serve", "web", "models", "auth", "agents", "agent", "sessions",
-                                           "export", "import", "share", "stats", "mcp", "plugins", "pr", "github", "debug"};
+                                           "export", "import", "share", "stats", "mcp", "plugins", "pr", "github", "debug",
+                                           "worktree", "schedule", "doctor", "fork"};
   bool interactive = cmd.empty() || !known.contains(cmd);
   bool runtime = (interactive || cmd == "run" || cmd == "serve" || cmd == "web" || cmd == "pr" || cmd == "github" ||
                   cmd == "plugins" || (cmd == "mcp" && pos.size() > 1 && pos[1] == "serve")) && !args.has("no-mcp");
@@ -188,6 +197,7 @@ int main(int argc, char** argv) {
   if (cmd == "sessions") return cmd_sessions(a, args);
   if (cmd == "export") return cmd_export(a, args);
   if (cmd == "import") return cmd_import(a, args);
+  if (cmd == "fork") return cmd_fork(a, args);
   if (cmd == "share") return cmd_share(a, args);
   if (cmd == "stats") return cmd_stats(a, args);
   if (cmd == "mcp") return cmd_mcp(a, args);
@@ -198,6 +208,9 @@ int main(int argc, char** argv) {
     return std::cerr << "usage: shaman github install|run [--dry-run]\n", 2;
   }
   if (cmd == "debug") return cmd_debug(a, args);
+  if (cmd == "worktree") return cmd_worktree(a, o, args);
+  if (cmd == "schedule") return cmd_schedule(a, o, args);
+  if (cmd == "doctor") return cmd_doctor(a, args);
   return 2;
 }
 

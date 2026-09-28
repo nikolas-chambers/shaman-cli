@@ -18,6 +18,14 @@ using namespace std::chrono;
 
 namespace {
 
+// Agents can't answer prompts: make tools fail fast instead of waiting for input.
+void noninteractive_env() {
+  for (auto [k, v] : {std::pair{"CI", "true"}, {"GIT_TERMINAL_PROMPT", "0"}, {"GIT_PAGER", "cat"}, {"PAGER", "cat"},
+                      {"DEBIAN_FRONTEND", "noninteractive"}, {"PIP_NO_INPUT", "1"}, {"npm_config_yes", "true"},
+                      {"HOMEBREW_NO_AUTO_UPDATE", "1"}, {"GIT_EDITOR", "true"}})
+    setenv(k, v, 0);  // don't override what the user set explicitly
+}
+
 std::vector<char*> make_argv(const std::vector<std::string>& argv) {
   std::vector<char*> out;
   for (auto& a : argv) out.push_back(const_cast<char*>(a.c_str()));
@@ -54,6 +62,7 @@ Result<Output> run(const std::vector<std::string>& argv, const Options& opts) {
     close(pipefd[0]);
     close(pipefd[1]);
     if (!opts.cwd.empty() && chdir(opts.cwd.c_str()) != 0) _exit(126);
+    noninteractive_env();
     auto args = make_argv(argv);
     execvp(args[0], args.data());
     _exit(127);
@@ -200,6 +209,105 @@ void Child::kill() {
     waitpid(pid_, nullptr, 0);
   }
   pid_ = in_ = out_ = -1;
+}
+
+Result<std::shared_ptr<Background>> Background::start(const std::string& command, const fs::path& cwd) {
+  int pipefd[2], infd[2];
+  if (pipe(pipefd) != 0 || pipe(infd) != 0) return fail("pipe failed", errno);
+  pid_t pid = fork();
+  if (pid < 0) return fail("fork failed", errno);
+  if (pid == 0) {
+    setpgid(0, 0);
+    dup2(infd[0], STDIN_FILENO);  // bash_input writes here
+    close(infd[1]);
+    noninteractive_env();
+    dup2(pipefd[1], STDOUT_FILENO);
+    dup2(pipefd[1], STDERR_FILENO);
+    close(pipefd[0]);
+    close(pipefd[1]);
+    if (!cwd.empty() && chdir(cwd.c_str()) != 0) _exit(126);
+    std::string sh = which("bash") ? "bash" : "sh";
+    execlp(sh.c_str(), sh.c_str(), "-c", command.c_str(), nullptr);
+    _exit(127);
+  }
+  close(pipefd[1]);
+  close(infd[0]);
+  fcntl(pipefd[0], F_SETFL, O_NONBLOCK);
+  signal(SIGPIPE, SIG_IGN);  // writing to a job that exited must not kill shaman
+  auto bg = std::shared_ptr<Background>(new Background());
+  bg->pid_ = pid;
+  bg->fd_ = pipefd[0];
+  bg->in_ = infd[1];
+  bg->command_ = command;
+  return bg;
+}
+
+Background::~Background() { kill(); }
+
+void Background::pump() {
+  if (fd_ < 0) return;
+  char buf[8192];
+  while (true) {
+    ssize_t n = read(fd_, buf, sizeof buf);
+    if (n > 0) {
+      buf_.append(buf, size_t(n));
+      if (buf_.size() > (4u << 20)) buf_.erase(0, buf_.size() - (2u << 20));  // keep the tail of chatty processes
+    } else {
+      if (n == 0) {
+        close(fd_);
+        fd_ = -1;
+      }
+      break;
+    }
+  }
+}
+
+std::string Background::take_output() {
+  std::lock_guard lock(mu_);
+  pump();
+  std::string out;
+  out.swap(buf_);
+  return out;
+}
+
+bool Background::running() {
+  std::lock_guard lock(mu_);
+  if (pid_ <= 0) return false;
+  int status = 0;
+  pid_t r = waitpid(pid_, &status, WNOHANG);
+  if (r == pid_) {
+    exit_code_ = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+    pid_ = -1;
+    return false;
+  }
+  return true;
+}
+
+Result<void> Background::write_input(const std::string& data) {
+  std::lock_guard lock(mu_);
+  if (in_ < 0) return fail("job has no input");
+  size_t off = 0;
+  while (off < data.size()) {
+    ssize_t n = ::write(in_, data.data() + off, data.size() - off);
+    if (n <= 0) return fail("job is not reading input (it may have exited)");
+    off += size_t(n);
+  }
+  return {};
+}
+
+void Background::kill() {
+  std::lock_guard lock(mu_);
+  if (in_ >= 0) close(in_), in_ = -1;
+  if (pid_ > 0) {
+    ::kill(-pid_, SIGTERM);
+    usleep(100'000);
+    ::kill(-pid_, SIGKILL);
+    int status = 0;
+    waitpid(pid_, &status, 0);
+    exit_code_ = 128 + SIGTERM;
+    pid_ = -1;
+  }
+  if (fd_ >= 0) close(fd_), fd_ = -1;
 }
 
 }  // namespace shaman::process

@@ -137,6 +137,17 @@ int cmd_export(App& app, const Args& args) {
   return 0;
 }
 
+int cmd_fork(App& app, const Args& args) {
+  auto s = pick(app, args);
+  if (!s) return std::cerr << s.error().message << "\n", 1;
+  session::Runner runner(app.services(nullptr, nullptr, false));
+  size_t n = args.get("turn") ? std::stoul(*args.get("turn")) - 1 : SIZE_MAX;
+  auto f = runner.fork(*s, n);
+  if (!f) return std::cerr << f.error().message << "\n", 1;
+  std::cout << "forked " << s->id << " -> " << f->id << " (continue with: shaman -s " << f->id << ")\n";
+  return 0;
+}
+
 int cmd_import(App& app, const Args& args) {
   if (args.positional.size() < 2) return std::cerr << "usage: shaman import <file.json>\n", 2;
   std::ifstream in(args.positional[1]);

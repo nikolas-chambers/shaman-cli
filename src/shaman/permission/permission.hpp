@@ -27,6 +27,9 @@ std::string_view to_string(Action a);
 class Rules {
  public:
   static Rules defaults();
+  // Evaluate a shell command: every simple command must be allowed, and
+  // writes/substitutions downgrade "allow" to "ask". Explicit denies anywhere win.
+  Action evaluate_shell(std::string_view permission, const std::string& command) const;
   static Rules from_json(const Json& j);
 
   void push(const Rules& layer);  // `layer` takes priority over what is here
@@ -43,6 +46,17 @@ class Rules {
   std::vector<Rule> rules_;
   int layers_ = 0;
 };
+
+// Shell command analysis for bash permissions. Rules are matched against each
+// simple command in a chain, and constructs that can write or run hidden code
+// force at least "ask", so `cat x > file` or `ls && rm -rf dir` can't ride on
+// a read-only allow rule.
+struct ShellAnalysis {
+  std::vector<std::string> commands;  // simple commands split on ; && || | & and newlines
+  bool writes = false;                // output redirection to a file (> >> &> >|), tee
+  bool substitution = false;          // $( ), backticks, <( ), >( )
+};
+ShellAnalysis analyze_shell(const std::string& command);
 
 struct Request {
   std::string permission;  // "bash"

@@ -7,6 +7,9 @@
 #include <thread>
 
 #include "shaman/command/command.hpp"
+#include "shaman/core/paths.hpp"
+#include "shaman/session/archive.hpp"
+#include <fstream>
 #include "shaman/core/id.hpp"
 #include "shaman/core/log.hpp"
 #include "shaman/core/net.hpp"
@@ -26,6 +29,7 @@ struct Pending {
   std::mutex mu;
   std::condition_variable cv;
   std::map<std::string, std::optional<permission::Reply>> replies;
+  std::map<std::string, std::optional<std::string>> answers;
 };
 
 // Global event bus for GET /event subscribers.
@@ -59,7 +63,9 @@ class StreamEvents final : public session::Events {
   void reasoning(std::string_view t) override { emit("reasoning", {{"text", t}}); }
   void tool_start(const llm::ToolCallPart& c) override { emit("tool_start", {{"id", c.id}, {"name", c.name}, {"input", c.input}}); }
   void tool_end(const llm::ToolCallPart& c, const tool::Output& o) override {
-    emit("tool_end", {{"id", c.id}, {"name", c.name}, {"title", o.title}, {"is_error", o.is_error}, {"output", o.text}});
+    Json j = {{"id", c.id}, {"name", c.name}, {"title", o.title}, {"is_error", o.is_error}, {"output", o.text}};
+    if (!o.diff.empty()) j["diff"] = o.diff;
+    emit("tool_end", j);
   }
   void step_end(int step, const llm::Usage& u, const std::string& model) override {
     emit("step", {{"step", step}, {"model", model}, {"input_tokens", u.input}, {"output_tokens", u.output}});
@@ -97,7 +103,8 @@ class Server {
     if (!l) {
       l = std::make_unique<Live>();
       auto asker = [this, id](const permission::Request& r) { return ask(id, r); };
-      auto services = app_.services(asker, &l->cancel, opts_.allow_all);
+      auto question = [this, id](const tool::Question& q) { return ask_question(id, q); };
+      auto services = app_.services(asker, &l->cancel, opts_.allow_all, question);
       l->runner = std::make_unique<session::Runner>(services);
     }
     if (cancel_out) *cancel_out = &l->cancel;
@@ -120,6 +127,23 @@ class Server {
     return reply;
   }
 
+  Result<std::string> ask_question(const std::string& session, const tool::Question& q) {
+    auto id = make_id("qst");
+    {
+      std::lock_guard lock(pending_.mu);
+      pending_.answers[id] = std::nullopt;
+    }
+    Json ev = {{"id", id}, {"session", session}, {"question", q.question}, {"options", q.options}, {"multiple", q.multiple}};
+    if (current_stream_) current_stream_->emit("question", ev);
+    else bus_.publish("question", ev);
+    std::unique_lock lock(pending_.mu);
+    bool answered = pending_.cv.wait_for(lock, 30min, [&] { return pending_.answers[id].has_value(); });
+    auto answer = answered ? *pending_.answers[id] : std::string();
+    pending_.answers.erase(id);
+    if (answer.empty()) return fail("the user did not answer; make a sensible choice and continue");
+    return answer;
+  }
+
   void handle(net::Connection& c) {
     auto req = c.read_request();
     if (!req) return;
@@ -135,7 +159,7 @@ class Server {
       return;
     }
     Json body = Json::object();
-    if (!req->body.empty()) {
+    if (!req->body.empty() && req->path != "/upload") {
       try {
         body = Json::parse(req->body);
       } catch (...) {
@@ -153,6 +177,7 @@ class Server {
   void route(net::Connection& c, const net::Request& req, const Json& body) {
     static const std::regex session_re(R"(^/session/([A-Za-z0-9_]+)(/[a-z]+)?$)");
     static const std::regex permission_re(R"(^/permission/([A-Za-z0-9_]+)$)");
+    static const std::regex question_re(R"(^/question/([A-Za-z0-9_]+)$)");
     std::smatch m;
     auto& M = req.method;
 
@@ -160,12 +185,17 @@ class Server {
       return void(c.respond(200, "text/html; charset=utf-8", embedded::web_index));
     if (M == "GET" && req.path == "/health") return void(c.json(200, Json{{"version", kVersion}}.dump()));
     if (M == "GET" && req.path == "/config") return void(c.json(200, app_.config.raw.dump()));
+    if (M == "GET" && req.path == "/info") {
+      auto d = app_.providers->default_model();
+      return void(c.json(200, Json{{"version", kVersion}, {"project", app_.root.string()}, {"default_model", d ? d->ref() : ""}}.dump()));
+    }
     if (M == "GET" && req.path == "/models") {
       Json out = Json::array();
       for (auto& p : app_.providers->providers()) {
         if (!app_.providers->usable(p)) continue;
         for (auto& mdl : app_.providers->visible_models(p))
-          out.push_back({{"id", p.id + "/" + mdl.id}, {"name", mdl.name}, {"free", mdl.free()}, {"context", mdl.context}});
+          out.push_back({{"id", p.id + "/" + mdl.id}, {"name", mdl.name}, {"free", mdl.free()}, {"context", mdl.context},
+                         {"vision", mdl.vision}});
       }
       return void(c.json(200, out.dump()));
     }
@@ -179,6 +209,15 @@ class Server {
       Json out = Json::array();
       for (auto& cmd : command::discover(app_.config, app_.root)) out.push_back({{"name", cmd.name}, {"description", cmd.description}});
       return void(c.json(200, out.dump()));
+    }
+    if (M == "POST" && req.path == "/upload") {  // raw body; ?name=file.png -> {"path"}
+      auto name = std::filesystem::path(req.param("name")).filename().string();
+      if (name.empty() || name == "." || name == "..") return void(c.json(400, R"({"error":"name is required"})"));
+      auto dir = paths::data_dir() / "uploads" / make_id("up");
+      std::error_code ec;
+      std::filesystem::create_directories(dir, ec);
+      std::ofstream(dir / name, std::ios::binary) << req.body;
+      return void(c.json(201, Json{{"path", (dir / name).string()}, {"name", name}, {"bytes", req.body.size()}}.dump()));
     }
     if (M == "GET" && req.path == "/event") {
       c.start_sse();
@@ -216,6 +255,14 @@ class Server {
       pending_.cv.notify_all();
       return void(c.json(200, R"({"ok":true})"));
     }
+    if (std::regex_match(req.path, m, question_re) && M == "POST") {
+      std::lock_guard lock(pending_.mu);
+      auto it = pending_.answers.find(m[1]);
+      if (it == pending_.answers.end()) return void(c.json(404, R"({"error":"no such question"})"));
+      it->second = body.value("answer", "");
+      pending_.cv.notify_all();
+      return void(c.json(200, R"({"ok":true})"));
+    }
     if (std::regex_match(req.path, m, session_re)) {
       std::string id = m[1], action = m[2];
       auto info = app_.store->get(id);
@@ -231,6 +278,33 @@ class Server {
         if (auto ms = app_.store->messages(id))
           for (auto& msg : *ms) out.push_back(llm::to_json(msg));
         return void(c.json(200, out.dump()));
+      }
+      if (action == "/title" && M == "POST") {
+        info->title = body.value("title", info->title);
+        app_.store->save(*info);
+        return void(c.json(200, session::to_json(*info).dump()));
+      }
+      if (action == "/share" && M == "GET") {
+        auto ms = app_.store->messages(id);
+        return void(c.respond(200, "text/html; charset=utf-8", session::export_html(*info, ms ? *ms : std::vector<llm::Message>{}),
+                              {{"Content-Disposition", "attachment; filename=\"" + id + ".html\""}}));
+      }
+      if (action == "/turns" && M == "GET") {
+        Json out = Json::array();
+        for (auto& t : live(id).runner->turns(*info)) out.push_back({{"turn", t.index}, {"text", t.text}});
+        return void(c.json(200, out.dump()));
+      }
+      if ((action == "/revert" || action == "/fork") && M == "POST") {
+        auto& l = live(id);
+        std::unique_lock busy(l.busy, std::try_to_lock);
+        if (!busy) return void(c.json(409, R"({"error":"session is busy"})"));
+        size_t n = body.value("turn", SIZE_MAX);
+        if (action == "/revert") {
+          auto r = l.runner->revert(*info, n);
+          return void(c.json(r ? 200 : 400, r ? Json{{"text", *r}}.dump() : Json{{"error", r.error().message}}.dump()));
+        }
+        auto f = l.runner->fork(*info, n);
+        return void(c.json(f ? 201 : 400, f ? session::to_json(*f).dump() : Json{{"error", f.error().message}}.dump()));
       }
       if (action == "/abort" && M == "POST") {
         live(id).cancel = true;
@@ -255,11 +329,19 @@ class Server {
 
   void prompt(net::Connection& c, session::Info info, const Json& body) {
     auto text = body.value("text", "");
+    if (auto name = body.value("command", ""); !name.empty()) {  // custom slash command
+      auto commands = command::discover(app_.config, app_.root);
+      auto* cmd = command::find(commands, name);
+      if (!cmd) return void(c.json(404, Json{{"error", "unknown command /" + name}}.dump()));
+      text = command::expand(*cmd, body.value("arguments", ""), app_.root);
+      if (cmd->agent) info.agent = *cmd->agent;
+    }
     if (text.empty()) return void(c.json(400, R"({"error":"text is required"})"));
     auto& l = live(info.id);
     std::unique_lock busy(l.busy, std::try_to_lock);
     if (!busy) return void(c.json(409, R"({"error":"session is busy"})"));
     if (body.contains("agent")) info.agent = body["agent"];
+    if (body.contains("goal")) info.goal = body["goal"];
     session::PromptOptions po;
     if (body.contains("model")) po.model = body["model"].get<std::string>();
     po.attachments = body.value("files", std::vector<std::string>{});

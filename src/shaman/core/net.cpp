@@ -15,14 +15,19 @@ static void net_init() {
   static bool done = [] { WSADATA d; return WSAStartup(MAKEWORD(2, 2), &d) == 0; }();
   (void)done;
 }
+// Child processes (bash, language servers, MCP servers) must not inherit sockets: a long-lived child holding a
+// client connection keeps the response open after the server has finished with it.
+static void no_inherit(int fd) { SetHandleInformation(reinterpret_cast<HANDLE>(SOCKET(fd)), HANDLE_FLAG_INHERIT, 0); }
 #else
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <poll.h>
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #define CLOSESOCK ::close
 static void net_init() {}
+static void no_inherit(int fd) { fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC); }
 #endif
 
 namespace shaman::net {
@@ -133,6 +138,7 @@ Result<std::unique_ptr<Listener>> Listener::bind(const std::string& host, int po
   net_init();
   int fd = int(socket(AF_INET, SOCK_STREAM, 0));
   if (fd < 0) return fail("socket failed");
+  no_inherit(fd);
   int yes = 1;
   setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&yes), sizeof yes);
   sockaddr_in addr{};
@@ -167,6 +173,7 @@ std::unique_ptr<Connection> Listener::accept(int timeout_ms) {
 #endif
   int c = int(::accept(fd_, nullptr, nullptr));
   if (c < 0) return nullptr;
+  no_inherit(c);
   return std::make_unique<Connection>(c);
 }
 

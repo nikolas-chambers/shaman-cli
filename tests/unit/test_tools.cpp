@@ -82,3 +82,29 @@ TEST(builtin_tools_roundtrip) {
 #endif
   fs::remove_all(root);
 }
+
+TEST(shell_permission_analysis) {
+  auto rules = permission::Rules::defaults();
+  using permission::Action;
+  auto eval = [&](const char* c) { return rules.evaluate_shell("bash", c); };
+  CHECK(eval("ls -la") == Action::allow);
+  CHECK(eval("git status && git diff") == Action::allow);
+  CHECK(eval("cat a.txt | grep foo") == Action::allow);
+  CHECK(eval("ls 2>/dev/null") == Action::allow);
+  CHECK(eval("grep -r x . 2>&1") == Action::allow);
+  // the bypasses found in live testing
+  CHECK(eval("echo 'test' > test.txt") == Action::ask);
+  CHECK(eval("cat << 'EOF' > calc.py\ndef add(a, b):\n    return 42\nEOF\ncat calc.py\n") == Action::ask);
+  CHECK(eval("ls && rm -rf build") == Action::ask);
+  CHECK(eval("ls; python3 evil.py") == Action::ask);
+  CHECK(eval("cat $(which python3)") == Action::ask);
+  CHECK(eval("echo `id`") == Action::ask);
+  CHECK(eval("cat x | tee out.txt") == Action::ask);
+  CHECK(eval("ls >> log") == Action::ask);
+  CHECK(eval("echo hi &> out") == Action::ask);
+  CHECK(eval("ls && sudo rm -rf /") == Action::deny);   // deny anywhere in the chain wins
+  CHECK(eval("echo 'a > b'") == Action::allow);          // quoted, not a redirect
+  CHECK(eval("echo \"$(date)\"") == Action::ask);        // substitution inside double quotes
+  auto a = permission::analyze_shell("cat << EOF\nls; rm -rf /\nEOF\n");
+  CHECK_EQ(a.commands.size(), size_t(1));                // heredoc body is data, not commands
+}

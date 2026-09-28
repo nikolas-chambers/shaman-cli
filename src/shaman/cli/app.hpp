@@ -32,7 +32,8 @@ struct App {
 
   // `with_runtime` starts MCP servers and plugins (skip for inspection commands).
   static Result<std::unique_ptr<App>> create(const std::filesystem::path& cwd, bool with_runtime);
-  session::Services services(permission::Asker asker, std::atomic<bool>* cancel, bool allow_all);
+  session::Services services(permission::Asker asker, std::atomic<bool>* cancel, bool allow_all,
+                             std::function<Result<std::string>(const tool::Question&)> question = nullptr);
 };
 
 }  // namespace shaman::cli

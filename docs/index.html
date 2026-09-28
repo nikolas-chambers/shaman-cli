@@ -23,11 +23,9 @@ header.top .brand { display:flex; align-items:center; gap:10px; font-weight:700;
 header.top .brand img { width:30px; height:30px; border-radius:8px; }
 header.top nav a { color:var(--muted); margin-left:20px; font-size:15px; }
 header.top nav a:hover { color:var(--fg); text-decoration:none; }
-.bannerwrap { background:var(--bg); }
-.bannerwrap .banner { width:100%; display:block; }
-.hero { padding:0 0 56px; text-align:center; }
-.hero .logo { width:104px; border-radius:26px; margin:40px auto 0; display:block; }
-.hero h1 { font-size:clamp(26px,4vw,40px); line-height:1.2; margin:24px 0 10px; }
+.hero { padding:28px 0 56px; text-align:center; }
+.hero .banner { width:100%; border-radius:14px; border:1px solid var(--line); box-shadow:0 0 60px rgba(34,228,240,.08); }
+.hero h1 { font-size:clamp(26px,4vw,40px); line-height:1.2; margin:34px 0 10px; }
 .hero p.lead { color:var(--muted); font-size:clamp(16px,2vw,19px); max-width:640px; margin:0 auto 26px; }
 .cta { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
 .btn { display:inline-block; padding:11px 22px; border-radius:10px; font-weight:600; border:1px solid var(--line); color:var(--fg); background:var(--panel); }
@@ -44,10 +42,14 @@ section p.sub { color:var(--muted); margin:0 0 28px; }
 .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; }
 .card h3 { margin:0 0 6px; font-size:16px; color:var(--cyan); }
 .card p { margin:0; color:var(--muted); font-size:15px; }
-.shots { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }
+.shots { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+@media (max-width:700px) { .shots { grid-template-columns:1fr; } }
 .shots figure { margin:0; }
 .shots img { width:100%; border-radius:10px; border:1px solid var(--line); display:block; }
 .shots figcaption { color:var(--muted); font-size:14px; margin-top:8px; }
+.split { display:grid; grid-template-columns:200px 1fr; gap:32px; align-items:center; }
+.split img { width:100%; max-width:200px; border-radius:24px; }
+.split > div { min-width:0; }  /* let wide code blocks scroll instead of stretching the grid */
 code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.92em; background:var(--panel); border:1px solid var(--line);
   padding:1px 6px; border-radius:6px; }
 footer { border-top:1px solid var(--line); padding:32px 0 48px; color:var(--muted); font-size:14px; }
@@ -58,26 +60,24 @@ footer .hire strong { color:var(--cyan); }
 @media (max-width:640px) {
   header.top nav a { margin-left:14px; }
   header.top nav a.hide-sm { display:none; }
+  .split { grid-template-columns:1fr; text-align:center; }
+  .split img { margin:0 auto; max-width:140px; }
 }
 </style>
 </head>
 <body>
-<div class="bannerwrap">
-  <img class="banner" src="assets/banner.png" alt="shaman-cli: powerful, flexible, open source">
-</div>
 <div class="wrap">
   <header class="top">
     <a class="brand" href="#"><img src="assets/icon-192.png" alt="">shaman-cli</a>
     <nav>
       <a href="#features">Features</a>
       <a href="#install" class="hide-sm">Install</a>
-      <a href="docs.html">Docs</a>
       <a href="https://github.com/nikolas-chambers/shaman-cli">GitHub</a>
     </nav>
   </header>
 
   <div class="hero">
-    <img class="logo" src="assets/logo.png" alt="shaman-cli logo">
+    <img class="banner" src="assets/banner.png" alt="shaman-cli: powerful, flexible, open source">
     <h1>A coding agent for your terminal</h1>
     <p class="lead">One native C++ binary. Free models out of the box, any provider with a key. Reads, edits, runs and verifies your code.</p>
     <div class="cta">
@@ -98,11 +98,12 @@ footer .hire strong { color:var(--cyan); }
     <div class="grid">
       <div class="card"><h3>Free to start</h3><p>Big Pickle and other free models work with no account. When a free model is rate limited, shaman switches to the next one.</p></div>
       <div class="card"><h3>Any model</h3><p>Anthropic, OpenAI, Gemini, OpenRouter, xAI, DeepSeek, Groq, Mistral, or local Ollama and LM Studio.</p></div>
-      <div class="card"><h3>Terminal, web, desktop</h3><p>A full-screen TUI, a browser UI, a native desktop app, plus an HTTP API and ACP for editors.</p></div>
-      <div class="card"><h3>Real tools</h3><p>Read, edit, patch, grep, run commands, search the web, use language servers and run formatters after every edit.</p></div>
-      <div class="card"><h3>23 built-in skills</h3><p>Code review, debugging, testing, security, PDF, Word, Excel, PowerPoint and more, loaded only when relevant.</p></div>
+      <div class="card"><h3>Terminal, web, desktop</h3><p>A full-screen TUI, a browser UI and a native desktop app with inline diffs, revert, fork and file drop, plus an HTTP API and ACP for editors.</p></div>
+      <div class="card"><h3>25 tools</h3><p>Edit, patch, grep, parallel reads, background jobs, HTTP, web search, notebooks, images, language servers, memory and subagents.</p></div>
+      <div class="card"><h3>35 built-in skills</h3><p>Code review, debugging, security, Kubernetes, SQL, accessibility, PDF, Word, Excel, PowerPoint and more, loaded only when relevant.</p></div>
       <div class="card"><h3>Extensible</h3><p>MCP servers (stdio, HTTP, OAuth), plugins in any language, custom agents, commands and skills.</p></div>
-      <div class="card"><h3>Safe by default</h3><p>Edits and commands ask first, read-only plan mode, a loop guard, and undo that never touches your git state.</p></div>
+      <div class="card"><h3>Safe by default</h3><p>Edits and commands ask first, read-only plan mode, secrets redacted, a loop guard, and undo that never touches your git state.</p></div>
+      <div class="card"><h3>Works while you're away</h3><p><code>/goal</code> keeps going until it's done, background agents run in parallel, notifications tell you when, and cron runs it on a schedule.</p></div>
       <div class="card"><h3>Easy to debug</h3><p>Per-subsystem debug logs, full JSONL traces, and <code>shaman debug</code> to inspect prompts, models and permissions.</p></div>
     </div>
   </div>
@@ -111,35 +112,41 @@ footer .hire strong { color:var(--cyan); }
 <section>
   <div class="wrap">
     <h2>See it work</h2>
-    <p class="sub">The same agent in the terminal and in the browser.</p>
+    <p class="sub">One question, in the browser and in the terminal, dark and light.</p>
     <div class="shots">
-      <figure><img src="assets/screens/tui.png" alt="shaman full-screen terminal UI" loading="lazy"><figcaption>Full-screen terminal UI with the command palette</figcaption></figure>
-      <figure><img src="assets/screens/web.png" alt="shaman web UI" loading="lazy"><figcaption>Web UI (<code>shaman web</code>), also the desktop app</figcaption></figure>
+      <figure><img src="assets/screens/web-dark.png" alt="shaman web UI answering a question, dark theme" loading="lazy"><figcaption>Web UI (<code>shaman web</code>, also the desktop app), dark</figcaption></figure>
+      <figure><img src="assets/screens/web-light.png" alt="shaman web UI answering a question, light theme" loading="lazy"><figcaption>Web UI, light</figcaption></figure>
+      <figure><img src="assets/screens/tui.png" alt="shaman terminal UI in a dark terminal" loading="lazy"><figcaption>Terminal UI (<code>shaman</code>), dark</figcaption></figure>
+      <figure><img src="assets/screens/tui-light.png" alt="shaman terminal UI in a light terminal" loading="lazy"><figcaption>Terminal UI, light</figcaption></figure>
     </div>
   </div>
 </section>
 
 <section id="install">
-  <div class="wrap">
-    <h2>Install</h2>
-    <p class="sub">Build from source with CMake and a C++23 compiler.</p>
-    <pre class="term" style="margin:0"><span class="c"># Debian/Ubuntu: apt install cmake ninja-build libcurl4-openssl-dev libssl-dev nlohmann-json3-dev</span>
+  <div class="wrap split">
+    <img src="assets/logo.png" alt="shaman-cli logo">
+    <div>
+      <h2>Install</h2>
+      <p class="sub">Build from source with CMake and a C++23 compiler.</p>
+      <pre class="term" style="margin:0;max-width:none"><span class="c"># Debian/Ubuntu: apt install cmake ninja-build libcurl4-openssl-dev libssl-dev nlohmann-json3-dev</span>
 <span class="c"># macOS:         brew install cmake ninja curl openssl nlohmann-json</span>
 <span class="p">$ </span>git clone https://github.com/nikolas-chambers/shaman-cli
-<span class="p">$ </span>cd shaman-cli &amp;&amp; cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-<span class="p">$ </span>cmake --build build &amp;&amp; sudo cmake --install build</pre>
-    <p style="color:var(--muted);margin-top:14px">Docs: <a href="https://github.com/nikolas-chambers/shaman-cli#readme">README</a> ·
-      <a href="config.html">Config</a> · <a href="server.html">HTTP API</a> · <a href="plugins.html">Plugins</a> · <a href="architecture.html">Architecture</a></p>
+<span class="p">$ </span>cd shaman-cli && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+<span class="p">$ </span>cmake --build build && sudo cmake --install build</pre>
+      <p style="color:var(--muted);margin-top:14px">Docs: <a href="https://github.com/nikolas-chambers/shaman-cli#readme">README</a> ·
+        <a href="config.html">Config</a> · <a href="server.html">HTTP API</a> · <a href="plugins.html">Plugins</a> · <a href="architecture.html">Architecture</a></p>
+    </div>
   </div>
 </section>
 
 <footer>
   <div class="wrap">
-    <div class="hire"><strong>For hire.</strong> AI, learning, app, and web development. Frontend, back end, and servers.
-      For Windows, Linux, and Android. In Java, C, C++, Python, Go, asm, and more &mdash; UI, GUI and command line. I like
-      working with cutting-edge technology and turning it into something useful for the community, not just another demo.
-      Need an agent, a CLI, a developer tool, or just about anything else? I can probably put the pieces together &mdash;
-      <a href="mailto:nikolasjonchambers@gmail.com">email me</a> &mdash; I'm open to freelance work.</div>
+    <div class="hire"><strong>For hire.</strong> AI, learning, app, and web development. Frontend, back end, and
+      servers. For Windows, Linux, and Android. In Java, C, C++, Python, Go, asm, and more &mdash; UI, GUI and
+      command line. I like working with cutting-edge technology and turning it into something useful for the
+      community, not just another demo. Need an agent, a CLI, a developer tool, or just about anything else? I can
+      probably put the pieces together &mdash; <a href="mailto:nikolasjonchambers@gmail.com">email me</a> &mdash;
+      I'm open to freelance work.</div>
     <div class="coffee"><strong>☕ Buy me a coffee?</strong> Venmo · Cash App · PayPal: <strong>"NikAndRigatoni"</strong> (Nikolas Chambers).
       My dog and I are living in the car right now; a few bucks buys dog food, gas, and more hours to keep building.</div>
     MIT licensed · Inspired by <a href="https://github.com/anomalyco/opencode">opencode</a> · Free models by <a href="https://opencode.ai/zen">OpenCode Zen</a> · Not affiliated with opencode.

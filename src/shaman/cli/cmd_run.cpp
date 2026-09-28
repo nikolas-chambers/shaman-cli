@@ -7,6 +7,7 @@
 #include "shaman/cli/render.hpp"
 #include "shaman/command/command.hpp"
 #include "shaman/core/strings.hpp"
+#include "shaman/extras/notify.hpp"
 #include "shaman/http/http.hpp"
 #include "shaman/http/sse.hpp"
 #include "shaman/version.hpp"
@@ -36,6 +37,7 @@ int cmd_run(App& app, const Options& o, std::string message) {
   auto s = open_session(app, o);
   if (!s) return std::cerr << "error: " << s.error().message << "\n", 1;
   if (o.agent) s->agent = *o.agent;
+  if (o.goal) s->goal = *o.goal;
   session::PromptOptions po;
   po.model = o.model;
   po.attachments = o.files;
@@ -49,7 +51,7 @@ int cmd_run(App& app, const Options& o, std::string message) {
   }
   if (str::trim(message).empty()) return std::cerr << "shaman run: no message\n", 2;
 
-  session::Runner runner(app.services(ask_terminal, &g_cancel, o.yolo));
+  session::Runner runner(app.services(ask_terminal, &g_cancel, o.yolo, question_terminal));
   TerminalEvents term(o.reasoning);
   JsonEvents json;
   session::Events& ev = o.json ? static_cast<session::Events&>(json) : term;
@@ -103,7 +105,11 @@ int cmd_attach(const Options& o, std::string message) {
                                                     {d.value("output", ""), d.value("is_error", false), d.value("title", "")});
       else if (e.event == "notice") term.notice(d.value("text", ""));
       else if (e.event == "error") std::cerr << "error: " << d.value("message", "") << "\n", code = 1;
-      else if (e.event == "permission") {
+      else if (e.event == "question") {
+        std::vector<std::string> opts = d.value("options", std::vector<std::string>{});
+        auto a = question_terminal({d.value("question", ""), opts, d.value("multiple", false)});
+        http::send({"POST", base + "/question/" + d.value("id", ""), headers(), Json{{"answer", a ? *a : ""}}.dump()});
+      } else if (e.event == "permission") {
         auto reply = ask_terminal({d.value("permission", ""), d.value("subject", ""), d.value("title", "")});
         std::string r = reply == permission::Reply::always ? "always" : reply == permission::Reply::once ? "once" : "reject";
         http::send({"POST", base + "/permission/" + d.value("id", ""), headers(), Json{{"reply", r}}.dump()});
@@ -120,7 +126,7 @@ int cmd_attach(const Options& o, std::string message) {
 int cmd_repl(App& app, Options o) {
   auto s = open_session(app, o);
   if (!s) return std::cerr << "error: " << s.error().message << "\n", 1;
-  session::Runner runner(app.services(ask_terminal, &g_cancel, o.yolo));
+  session::Runner runner(app.services(ask_terminal, &g_cancel, o.yolo, question_terminal));
   auto commands = command::discover(app.config, app.root);
   bool color = stdout_is_tty();
   auto model = app.providers->resolve(o.model.value_or(s->model));
@@ -140,8 +146,15 @@ int cmd_repl(App& app, Options o) {
       auto cmd = line.substr(1, sp == std::string::npos ? std::string::npos : sp - 1);
       auto arg = sp == std::string::npos ? "" : str::trim(line.substr(sp + 1));
       if (cmd == "exit" || cmd == "quit") break;
+      if (cmd == "goal" && !arg.empty()) {
+        s->goal = arg;
+        app.store->save(*s);
+        std::cout << "goal set: " << arg << "\n";
+        line = "Work towards the goal: " + arg;
+        goto run_turn;
+      }
       if (cmd == "help") {
-        std::cout << "/new /sessions /agent <name> /model <ref> /models /undo /compact /todos /cost /exit";
+        std::cout << "/new /sessions /agent <name> /model <ref> /models /goal <text> /undo /turns /revert <n> /fork [n] /compact /todos /cost /exit";
         for (auto& c : commands) std::cout << " /" << c.name;
         std::cout << "\n";
         continue;
@@ -149,6 +162,13 @@ int cmd_repl(App& app, Options o) {
       if (cmd == "new") {
         if (auto n = app.store->create(s->agent, s->model)) s = n, std::cout << "new session " << s->id << "\n";
         continue;
+      }
+      if (cmd == "goal") {
+        s->goal = arg;
+        app.store->save(*s);
+        std::cout << (arg.empty() ? "goal cleared" : "goal set: " + arg) << "\n";
+        if (arg.empty()) continue;
+        line = "Work towards the goal: " + arg;
       }
       if (cmd == "sessions") {
         for (auto& i : app.store->list()) std::cout << "  " << i.id << "  " << i.title << "\n";
@@ -175,6 +195,23 @@ int cmd_repl(App& app, Options o) {
         std::cout << (r ? *r : r.error().message) << "\n";
         continue;
       }
+      if (cmd == "turns") {
+        for (auto& t : runner.turns(*s)) std::cout << "  #" << t.index + 1 << "  " << str::replace_all(t.text.substr(0, 70), "\n", " ") << "\n";
+        continue;
+      }
+      if (cmd == "revert" || cmd == "fork") {
+        size_t n = arg.empty() ? (cmd == "fork" ? SIZE_MAX : runner.turns(*s).size()) : std::stoul(arg);
+        if (cmd == "revert") {
+          if (n == 0) { std::cout << "usage: /revert <turn number> (see /turns)\n"; continue; }
+          auto r = runner.revert(*s, n - 1);
+          std::cout << (r ? "reverted; the message was: " + *r : r.error().message) << "\n";
+        } else {
+          auto r = runner.fork(*s, n == SIZE_MAX ? n : n - 1);
+          if (r) s = r, std::cout << "forked into " << s->id << "\n";
+          else std::cout << r.error().message << "\n";
+        }
+        continue;
+      }
       if (cmd == "compact") {
         TerminalEvents ev;
         if (auto r = runner.compact(*s, ev); !r) std::cout << r.error().message << "\n";
@@ -196,11 +233,16 @@ int cmd_repl(App& app, Options o) {
       line = command::expand(*c, arg, app.root);
       if (c->model) po.model = c->model;
     }
+  run_turn:
     TerminalEvents ev(o.reasoning);
     g_cancel = false;
     g_busy = true;
+    auto t0 = std::chrono::steady_clock::now();
     auto r = runner.prompt(*s, line, ev, po);
     g_busy = false;
+    auto ns = extras::notify_settings(app.config);
+    if (std::chrono::steady_clock::now() - t0 >= std::chrono::seconds(ns.min_seconds) && !g_cancel)
+      extras::notify(ns, "shaman", r ? "Done: " + s->title : "Error: " + r.error().message);
     ev.finish();
     if (g_cancel) std::cout << "(stopped)\n";
     else if (!r) std::cerr << "error: " << r.error().message << "\n";

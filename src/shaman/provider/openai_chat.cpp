@@ -16,13 +16,21 @@ Json openai_chat_body(const ChatRequest& req) {
     if (m.role == Role::user) {
       std::string text;
       Json content = Json::array();
+      Json tool_images = Json::array();  // tool messages can't carry images in this API; follow with a user message
       for (auto& p : m.parts) {
-        if (auto* r = std::get_if<ToolResultPart>(&p))
+        if (auto* r = std::get_if<ToolResultPart>(&p)) {
           messages.push_back({{"role", "tool"}, {"tool_call_id", r->call_id}, {"content", r->output}});
+          for (auto& i : r->images)
+            tool_images.push_back({{"type", "image_url"}, {"image_url", {{"url", "data:" + i.media_type + ";base64," + i.data}}}});
+        }
         else if (auto* t = std::get_if<TextPart>(&p)) text += t->text;
         else if (auto* i = std::get_if<ImagePart>(&p))
           content.push_back({{"type", "image_url"},
                              {"image_url", {{"url", "data:" + i->media_type + ";base64," + i->data}}}});
+      }
+      if (!tool_images.empty()) {
+        tool_images.insert(tool_images.begin(), Json{{"type", "text"}, {"text", "Images returned by the tool calls above:"}});
+        messages.push_back({{"role", "user"}, {"content", tool_images}});
       }
       if (!content.empty()) {  // multimodal: text first, then images
         if (!text.empty()) content.insert(content.begin(), Json{{"type", "text"}, {"text", text}});
@@ -81,8 +89,17 @@ void OpenAIChatDecoder::feed(const Json& chunk, const EventSink& sink) {
       sink(TextDelta{c->get<std::string>()});
     if (auto tcs = d->find("tool_calls"); tcs != d->end() && tcs->is_array()) {
       for (auto& tc : *tcs) {
-        auto& call = calls_[tc.value("index", 0)];
-        if (auto id = tc.find("id"); id != tc.end() && id->is_string()) call.id = *id;
+        // Some servers (Gemini) give parallel calls the same index; a new id means a new call.
+        int index = tc.value("index", 0);
+        std::string id = tc.contains("id") && tc["id"].is_string() ? tc["id"].get<std::string>() : "";
+        auto it = by_index_.find(index);
+        if (it == by_index_.end() || (!id.empty() && !calls_[it->second].id.empty() && calls_[it->second].id != id)) {
+          calls_.push_back({});
+          by_index_[index] = calls_.size() - 1;
+          it = by_index_.find(index);
+        }
+        auto& call = calls_[it->second];
+        if (!id.empty()) call.id = id;
         if (auto ex = tc.find("extra_content"); ex != tc.end() && ex->is_object()) call.extra = *ex;
         if (auto f = tc.find("function"); f != tc.end()) {
           if (auto n = f->find("name"); n != f->end() && n->is_string()) call.name += n->get<std::string>();
@@ -101,7 +118,8 @@ void OpenAIChatDecoder::feed(const Json& chunk, const EventSink& sink) {
 }
 
 void OpenAIChatDecoder::finish(const EventSink& sink) {
-  for (auto& [index, c] : calls_) {
+  for (size_t index = 0; index < calls_.size(); ++index) {
+    auto& c = calls_[index];
     Json input = Json::object();
     if (!c.args.empty()) {
       try {
@@ -117,6 +135,7 @@ void OpenAIChatDecoder::finish(const EventSink& sink) {
   }
   if (!calls_.empty() && finish_ != Finish::length) finish_ = Finish::tool_calls;
   calls_.clear();
+  by_index_.clear();
   if (usage_) sink(UsageEvent{*usage_});
   sink(FinishEvent{finish_});
 }

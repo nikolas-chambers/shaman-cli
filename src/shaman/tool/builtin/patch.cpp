@@ -3,6 +3,7 @@
 #include <format>
 
 #include "shaman/core/strings.hpp"
+#include "shaman/diff/diff.hpp"
 #include "shaman/tool/builtin/common.hpp"
 
 namespace shaman::tool {
@@ -163,9 +164,11 @@ class ApplyPatch final : public Tool {
     if (!ctx.permit("edit", str::join(summary, ", "), "Patch: " + str::join(summary, ", ")))
       return error("permission denied");
 
-    std::string diagnostics;
+    std::string diagnostics, diffs;
     for (auto& step : plan) {
       std::error_code ec;
+      auto before = read_all(step.path).value_or("");
+      diffs += diff::unified(before, step.content.value_or(""), rel(ctx, step.dest));
       if (!step.content) {
         fs::remove(step.path, ec);
         continue;
@@ -175,8 +178,11 @@ class ApplyPatch final : public Tool {
       if (ctx.read_files) ctx.read_files->insert(step.dest);
       if (ctx.diagnostics) diagnostics += ctx.diagnostics(step.dest);
     }
-    return {"Applied patch:\n" + str::join(summary, "\n") + diagnostics, false,
-            std::format("Patch ({} files)", summary.size())};
+    Output out{"Applied patch:\n" + str::join(summary, "\n") + diagnostics, false, ""};
+    out.diff = diffs;
+    auto st = diff::stats(diffs);
+    out.title = std::format("Patch {} file{} (+{} -{})", summary.size(), summary.size() == 1 ? "" : "s", st.added, st.removed);
+    return out;
   }
 };
 

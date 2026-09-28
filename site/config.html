@@ -57,6 +57,9 @@
   &quot;lsp&quot;: { &quot;timeout&quot;: 3000, &quot;servers&quot;: { &quot;zls&quot;: { &quot;command&quot;: [&quot;zls&quot;], &quot;extensions&quot;: [&quot;.zig&quot;] }, &quot;pyright&quot;: { &quot;disabled&quot;: true } } },
   &quot;formatter&quot;: { &quot;ruff&quot;: false, &quot;mine&quot;: { &quot;command&quot;: [&quot;my-fmt&quot;, &quot;$FILE&quot;], &quot;extensions&quot;: [&quot;.foo&quot;] } },   // or false
   &quot;plugin&quot;: [&quot;./tools/guard.py&quot;, { &quot;command&quot;: [&quot;node&quot;, &quot;plugin.js&quot;] }],
+  &quot;notify&quot;: { &quot;desktop&quot;: true, &quot;sound&quot;: true, &quot;min_seconds&quot;: 20 },   // or false; turn done / permission / question
+  &quot;redact_secrets&quot;: true,          // mask API keys, tokens and private keys in tool output before the model sees it
+  &quot;goal_max_rounds&quot;: 5,            // /goal: how many self-checks before stopping
   &quot;share&quot;: { &quot;url&quot;: &quot;https://paste.example.com/api&quot;, &quot;token&quot;: &quot;{env:PASTE_TOKEN}&quot; }   // optional upload for `shaman share`
 }</code></pre>
 <p>Markdown agents (<code>.shaman/agents/&lt;name&gt;.md</code>) and commands (<code>.shaman/commands/&lt;name&gt;.md</code>) take front matter:</p>
@@ -68,6 +71,8 @@ tools: read, grep, glob, bash
 ---
 You are a strict reviewer. Report bugs only, with path:line.</code></pre>
 <p>Command templates support <code>$ARGUMENTS</code>, <code>$1</code>..<code>$9</code>, <code></code> !<code>shell</code> <code></code> and <code>@file</code>.</p>
+<p>Environment variables that change behaviour: <code>TAVILY_API_KEY</code>, <code>EXA_API_KEY</code> or <code>BRAVE_SEARCH_API_KEY</code> switch <code>websearch</code> to that service (default DuckDuckGo). Shell commands always run with <code>CI=true</code>, <code>GIT_TERMINAL_PROMPT=0</code>, <code>PAGER=cat</code> and similar set (unless you set them yourself), so tools fail fast instead of waiting for input.</p>
+<p>Project memory: the <code>memory</code> tool writes <code>.shaman/MEMORY.md</code>, which is added to every session&#x27;s system prompt. Edit or delete it by hand any time.</p>
 <footer>shaman 0.1.0 &middot; <a href="https://github.com/nikolas-chambers/shaman-cli">source</a></footer>
 </main>
 </body>

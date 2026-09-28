@@ -7,7 +7,7 @@ cli/         entry point, subcommands, line-based REPL, terminal/JSON rendering,
 tui/         full-screen UI: raw terminal, markdown rendering, pickers, dialogs
 server/      HTTP API + embedded web UI (web/index.html)
 acp/         Agent Client Protocol for editors
-session/     the agent loop (runner), store, system prompt, snapshots, input, formatters, archive
+session/     the agent loop (runner), store, system prompt, snapshots, input, formatters, archive, secret redaction
 agent/       agent definitions: built-ins, config, markdown files; prompts
 command/     custom slash commands          skill/   SKILL.md discovery
 tool/        Tool interface, registry, built-in tools (tool/builtin/)
@@ -17,6 +17,8 @@ plugin/      out-of-process plugin host
 permission/  layered allow/ask/deny rules and the interactive gate
 provider/    Provider interface, OpenAI-chat and Anthropic protocols, catalog, registry
 auth/        saved API keys                 github/  Actions integration     update/  self-update
+extras/      notifications, git worktrees, cron scheduling
+diff/        Myers unified diffs for edit tools
 llm/         provider-neutral messages, requests and stream events
 http/        libcurl transport and SSE parser
 config/      layered JSONC config with {env:} / {file:} substitution
@@ -37,6 +39,11 @@ apps/        main.cpp (shaman), desktop.cpp (shaman-desktop)
    the agent's `max_steps` is reached, or the user cancels. Near the context limit the history is compacted.
 
 Every step emits `session::Events` (rendered by `cli/render`) plus debug logs and trace records.
+
+Each top-level turn records where its user message starts (`Info::turn_starts`) next to its worktree snapshot
+(`Info::snapshots`). `Runner::revert(n)` restores snapshot `n` and truncates the log there; `Runner::fork(n)` copies
+the log up to it into a new session. Edit tools attach a unified diff to their result; it is stored and shown in
+every UI but never sent to the model.
 
 ## Extension points
 

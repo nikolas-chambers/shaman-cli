@@ -120,4 +120,15 @@ Result<std::optional<std::string>> Child::read_line(milliseconds) { return fail(
 Result<std::optional<std::string>> Child::read_exact(size_t, milliseconds) { return fail("unsupported"); }
 void Child::kill() {}
 
+// Background processes are not implemented on Windows yet.
+Result<std::shared_ptr<Background>> Background::start(const std::string&, const fs::path&) {
+  return fail("background processes are not yet supported on Windows");
+}
+Background::~Background() = default;
+std::string Background::take_output() { return {}; }
+bool Background::running() { return false; }
+void Background::kill() {}
+Result<void> Background::write_input(const std::string&) { return fail("unsupported"); }
+void Background::pump() {}
+
 }  // namespace shaman::process

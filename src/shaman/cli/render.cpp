@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <format>
 #include <fstream>
+#include <algorithm>
 #include <iostream>
 
 #include "shaman/core/strings.hpp"
@@ -61,6 +62,19 @@ void TerminalEvents::tool_end(const llm::ToolCallPart& call, const tool::Output&
     auto first = str::lines(out.text);
     if (!first.empty()) std::cout << (color_ ? kDim : "") << "  " << first.front() << (color_ ? kReset : "") << "\n";
   }
+  if (!out.diff.empty()) {  // show what changed, capped
+    auto ls = str::lines(out.diff);
+    size_t shown = 0;
+    for (auto& l : ls) {
+      if (l.starts_with("---") || l.starts_with("+++")) continue;
+      if (++shown > 40) {
+        std::cout << (color_ ? kDim : "") << "  ... " << ls.size() - shown << " more diff lines" << (color_ ? kReset : "") << "\n";
+        break;
+      }
+      const char* c = l.starts_with("+") ? "\x1b[32m" : l.starts_with("-") ? "\x1b[31m" : l.starts_with("@@") ? "\x1b[36m" : kDim;
+      std::cout << "  " << (color_ ? c : "") << l << (color_ ? kReset : "") << "\n";
+    }
+  }
 }
 
 void TerminalEvents::step_end(int, const llm::Usage&, const std::string&) {}
@@ -82,7 +96,9 @@ void JsonEvents::tool_start(const llm::ToolCallPart& c) {
   emit({{"type", "tool_start"}, {"id", c.id}, {"name", c.name}, {"input", c.input}});
 }
 void JsonEvents::tool_end(const llm::ToolCallPart& c, const tool::Output& o) {
-  emit({{"type", "tool_end"}, {"id", c.id}, {"title", o.title}, {"is_error", o.is_error}, {"output", o.text}});
+  Json j = {{"type", "tool_end"}, {"id", c.id}, {"title", o.title}, {"is_error", o.is_error}, {"output", o.text}};
+  if (!o.diff.empty()) j["diff"] = o.diff;
+  emit(j);
 }
 void JsonEvents::step_end(int step, const llm::Usage& u, const std::string& model) {
   emit({{"type", "step"}, {"step", step}, {"model", model}, {"input_tokens", u.input}, {"output_tokens", u.output}});
@@ -104,6 +120,31 @@ permission::Reply ask_terminal(const permission::Request& req) {
   if (answer == "a" || answer == "always") return permission::Reply::always;
   if (answer == "y" || answer == "yes") return permission::Reply::once;
   return permission::Reply::reject;
+}
+
+Result<std::string> question_terminal(const tool::Question& q) {
+#ifdef _WIN32
+  std::ifstream tty("CONIN$");
+#else
+  std::ifstream tty("/dev/tty");
+#endif
+  if (!tty) return fail("no user is available to answer; make a sensible choice, state it, and continue");
+  std::cerr << "\n" << kYellow << "question" << kReset << " " << q.question << "\n";
+  for (size_t i = 0; i < q.options.size(); ++i) std::cerr << "  " << i + 1 << ") " << q.options[i] << "\n";
+  std::cerr << (q.options.empty() ? "> " : q.multiple ? "numbers separated by commas, or your own answer > " : "number or your own answer > ")
+            << std::flush;
+  std::string line;
+  std::getline(tty, line);
+  line = str::trim(line);
+  if (line.empty()) return fail("the user gave no answer");
+  std::vector<std::string> picked;
+  for (auto& part : str::split(line, ',')) {
+    auto t = str::trim(part);
+    bool num = !t.empty() && std::all_of(t.begin(), t.end(), ::isdigit);
+    if (!num || std::stoul(t) < 1 || std::stoul(t) > q.options.size()) return line;  // free-form answer
+    picked.push_back(q.options[std::stoul(t) - 1]);
+  }
+  return str::join(picked, ", ");
 }
 
 }  // namespace shaman::cli

@@ -26,9 +26,10 @@ Result<std::unique_ptr<App>> App::create(const std::filesystem::path& cwd, bool 
   return app;
 }
 
-session::Services App::services(permission::Asker asker, std::atomic<bool>* cancel, bool allow_all) {
+session::Services App::services(permission::Asker asker, std::atomic<bool>* cancel, bool allow_all,
+                                std::function<Result<std::string>(const tool::Question&)> question) {
   return {root, &config, providers.get(), agents.get(), &tools, store.get(), std::move(asker), cancel, allow_all,
-          lsp.get(), &plugins};
+          lsp.get(), &plugins, std::move(question)};
 }
 
 }  // namespace shaman::cli

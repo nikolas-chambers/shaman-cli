@@ -12,7 +12,7 @@ Json to_json(const Info& i) {
   return {{"id", i.id}, {"title", i.title}, {"agent", i.agent}, {"model", i.model},
           {"parent_id", i.parent_id}, {"created", i.created}, {"updated", i.updated},
           {"usage", {{"input", i.usage.input}, {"output", i.usage.output}, {"cache_read", i.usage.cache_read}}},
-          {"cost", i.cost}, {"snapshots", i.snapshots}};
+          {"cost", i.cost}, {"snapshots", i.snapshots}, {"goal", i.goal}, {"turn_starts", i.turn_starts}};
 }
 
 Info info_from_json(const Json& j) {
@@ -30,6 +30,8 @@ Info info_from_json(const Json& j) {
   i.usage.cache_read = u.value("cache_read", int64_t(0));
   i.cost = j.value("cost", 0.0);
   i.snapshots = j.value("snapshots", std::vector<std::string>{});
+  i.goal = j.value("goal", "");
+  i.turn_starts = j.value("turn_starts", std::vector<size_t>{});
   return i;
 }
 

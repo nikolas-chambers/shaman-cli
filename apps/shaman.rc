@@ -1,0 +1,2 @@
+// Windows resources: application icon for shaman.exe and shaman-desktop.exe.
+IDI_APP ICON "../docs/assets/icon.ico"

@@ -42,6 +42,9 @@ std::string system_prompt(const agent::Agent& agent, const Config& config, const
   if (fs::is_regular_file(paths::config_dir() / "AGENTS.md", ec)) files.push_back(paths::config_dir() / "AGENTS.md");
   for (auto& extra : config.instructions) files.push_back(paths::resolve(root, extra));
 
+  // Project memory written by the memory tool.
+  if (fs::is_regular_file(root / ".shaman" / "MEMORY.md", ec)) files.push_back(root / ".shaman" / "MEMORY.md");
+
   for (auto& f : files) {
     std::ifstream in(f);
     if (!in) {

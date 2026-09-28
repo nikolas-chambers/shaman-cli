@@ -1,9 +1,11 @@
 #include "shaman/command/command.hpp"
 #include "shaman/core/strings.hpp"
+#include "shaman/diff/diff.hpp"
 #include "shaman/github/github.hpp"
 #include "shaman/mcp/oauth.hpp"
 #include "shaman/provider/anthropic.hpp"
 #include "shaman/session/archive.hpp"
+#include "shaman/session/runner.hpp"
 #include "shaman/tool/builtin/patch.hpp"
 #include "shaman/tui/markdown.hpp"
 #include "test.hpp"
@@ -129,4 +131,61 @@ TEST(tui_wrap_and_markdown) {
   CHECK_EQ(tui::display_width("héllo"), size_t(5));
   auto md = tui::render_markdown("# Title\n- item\n```\ncode\n```", 40);
   CHECK(md.size() >= 4);
+}
+
+#include "shaman/extras/schedule.hpp"
+#include "shaman/session/redact.hpp"
+
+TEST(redact_secrets) {
+  std::string t = "key sk-proj-abcdefghijklmnopqrstuvwx and AKIAABCDEFGHIJKLMNOP\npassword=hunter2hunter2 ok=fine\n"
+                  "-----BEGIN RSA PRIVATE KEY-----\nMIIabc\n-----END RSA PRIVATE KEY-----";
+  int n = session::redact_secrets(t);
+  CHECK(n >= 4);
+  CHECK(t.find("sk-proj-") == std::string::npos);
+  CHECK(t.find("AKIA") == std::string::npos);
+  CHECK(t.find("hunter2") == std::string::npos);
+  CHECK(t.find("password=[REDACTED:secret]") != std::string::npos);  // key name kept
+  CHECK(t.find("MIIabc") == std::string::npos);
+  CHECK(t.find("ok=fine") != std::string::npos);
+  std::string clean = "nothing secret here, version=1.2.3";
+  CHECK_EQ(session::redact_secrets(clean), 0);
+}
+
+TEST(cron_validation) {
+  CHECK(extras::valid_cron("0 9 * * 1-5"));
+  CHECK(extras::valid_cron("*/15 * * * *"));
+  CHECK(extras::valid_cron("@daily"));
+  CHECK(extras::valid_cron("0 0 1 jan mon"));
+  CHECK(!extras::valid_cron("0 9 * *"));
+  CHECK(!extras::valid_cron("rm -rf / * * *"));
+}
+
+TEST(tui_markdown_table) {
+  auto lines = tui::render_markdown("| Name | Qty |\n|---|---|\n| apple | 3 |\n| kiwi | 12 |", 60);
+  CHECK_EQ(lines.size(), size_t(6));  // top, header, separator, 2 rows, bottom
+  size_t w = tui::display_width(lines[0]);
+  for (auto& l : lines) CHECK_EQ(tui::display_width(l), w);  // aligned
+}
+
+TEST(unified_diff_hunks_and_stats) {
+  std::string before = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
+  std::string after = "a\nb\nC\nd\ne\nf\ng\nh\ni\nj\nk\n";
+  auto d = diff::unified(before, after, "f.txt", 1);
+  CHECK(d.starts_with("--- a/f.txt\n+++ b/f.txt\n"));
+  CHECK(d.find("@@ -2,3 +2,3 @@\n b\n-c\n+C\n d\n") != std::string::npos);  // separate hunks with 1 line of context
+  CHECK(d.find("+k\n") != std::string::npos);
+  auto s = diff::stats(d);
+  CHECK_EQ(s.added, 2);
+  CHECK_EQ(s.removed, 1);
+  CHECK(diff::unified("same\n", "same\n", "x").empty());
+  CHECK(diff::unified("", "new\n", "n").find("@@ -0,0 +1,1 @@\n+new\n") != std::string::npos);
+}
+
+TEST(session_title_from_first_message) {
+  CHECK_EQ(session::make_title("  fix   the build\nmore detail"), std::string("fix the build"));
+  CHECK_EQ(session::make_title("\n\nsecond line"), std::string("second line"));
+  auto t = session::make_title("Why is the cart total wrong when I apply a ten percent discount to the order?", 40);
+  CHECK_EQ(t, std::string("Why is the cart total wrong when I apply…"));
+  auto u = session::make_title(std::string(39, 'a') + "éé", 40);  // never splits a code point
+  CHECK_EQ(u, std::string(39, 'a') + "…");
 }

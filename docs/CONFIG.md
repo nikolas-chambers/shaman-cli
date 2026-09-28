@@ -46,6 +46,9 @@ JSONC is accepted (comments, trailing commas). Any string may use `{env:NAME}` o
   "lsp": { "timeout": 3000, "servers": { "zls": { "command": ["zls"], "extensions": [".zig"] }, "pyright": { "disabled": true } } },
   "formatter": { "ruff": false, "mine": { "command": ["my-fmt", "$FILE"], "extensions": [".foo"] } },   // or false
   "plugin": ["./tools/guard.py", { "command": ["node", "plugin.js"] }],
+  "notify": { "desktop": true, "sound": true, "min_seconds": 20 },   // or false; turn done / permission / question
+  "redact_secrets": true,          // mask API keys, tokens and private keys in tool output before the model sees it
+  "goal_max_rounds": 5,            // /goal: how many self-checks before stopping
   "share": { "url": "https://paste.example.com/api", "token": "{env:PASTE_TOKEN}" }   // optional upload for `shaman share`
 }
 ```
@@ -63,3 +66,10 @@ You are a strict reviewer. Report bugs only, with path:line.
 ```
 
 Command templates support `$ARGUMENTS`, `$1`..`$9`, `` !`shell` `` and `@file`.
+
+Environment variables that change behaviour: `TAVILY_API_KEY`, `EXA_API_KEY` or `BRAVE_SEARCH_API_KEY` switch
+`websearch` to that service (default DuckDuckGo). Shell commands always run with `CI=true`, `GIT_TERMINAL_PROMPT=0`,
+`PAGER=cat` and similar set (unless you set them yourself), so tools fail fast instead of waiting for input.
+
+Project memory: the `memory` tool writes `.shaman/MEMORY.md`, which is added to every session's system prompt. Edit
+or delete it by hand any time.

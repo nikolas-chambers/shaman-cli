@@ -11,12 +11,16 @@ scenario:
   "read <file>"     calls the read tool on <file>, then quotes the first line
   "run <command>"   calls the bash tool, then reports the exit code
   "loop"            calls the same tool forever (doom-loop guard test)
+  "seq [...]"       one tool call per round trip from a JSON list, then reports
+  scripted prompts  with --script FILE: {"<prompt substring>": {"steps": [{"tool", "input"}], "reply": "..."}}
+                    runs the steps, then streams the Markdown reply (demos and screenshots)
   anything else     replies "echo: <message>"
 
 Flags:
   --port N              listen port (default 8765; 0 picks a free one)
   --rate-limit MODEL    answer 429 for MODEL (repeatable) to test fallback
   --log FILE            append every request body as JSONL
+  --script FILE         scripted conversations (see above)
 
 It prints "listening on <port>" once ready.
 """
@@ -108,7 +112,30 @@ def make_handler(args):
             prompt = last_user_text(messages)
             usage = {"prompt_tokens": 100, "completion_tokens": 10}
 
-            if last["role"] == "tool" and prompt.startswith("call "):
+            script = next((v for k, v in args.script.items() if k in prompt), None)
+            if script is not None:
+                start = [i for i, m in enumerate(messages) if m["role"] == "user"][-1]
+                done = sum(1 for m in messages[start:] if m["role"] == "tool")
+                steps = script.get("steps", [])
+                if done < len(steps):
+                    tool_call(steps[done]["tool"], steps[done].get("input", {}))
+                else:
+                    reply = script.get("reply", "")
+                    for i in range(0, len(reply), 24):
+                        event({"content": reply[i:i + 24]})
+                    event(finish="stop", usage=usage)
+            elif prompt.startswith("seq "):
+                # "seq [{"tool": ..., "input": {...}}, ...]": one tool call per round trip, then report
+                steps = json.loads(prompt[4:])
+                done = sum(1 for m in messages[[i for i, m in enumerate(messages) if m["role"] == "user"][-1]:] if m["role"] == "tool")
+                if done < len(steps):
+                    tool_call(steps[done]["tool"], steps[done].get("input", {}))
+                else:
+                    start = [i for i, m in enumerate(messages) if m["role"] == "user"][-1]
+                    outputs = [m.get("content", "").strip() for m in messages[start:] if m["role"] == "tool"]
+                    event({"content": "seq done: " + " || ".join(outputs)})
+                    event(finish="stop", usage=usage)
+            elif last["role"] == "tool" and prompt.startswith("call "):
                 event({"content": "tool said: " + last.get("content", "").strip()})
                 event(finish="stop", usage=usage)
             elif last["role"] == "tool":
@@ -190,6 +217,7 @@ def main():
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--rate-limit", action="append", default=[])
     p.add_argument("--log")
+    p.add_argument("--script", type=lambda f: json.load(open(f)), default={})
     args = p.parse_args()
     server = http.server.ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(args))
     print(f"listening on {server.server_address[1]}", flush=True)

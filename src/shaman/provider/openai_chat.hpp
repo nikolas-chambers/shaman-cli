@@ -21,7 +21,8 @@ class OpenAIChatDecoder {
     std::string id, name, args;
     Json extra;  // "extra_content" (Gemini thought_signature), returned verbatim next turn
   };
-  std::map<int, PendingCall> calls_;
+  std::vector<PendingCall> calls_;   // in arrival order
+  std::map<int, size_t> by_index_;   // stream index -> latest call with that index
   std::optional<llm::Usage> usage_;
   llm::Finish finish_ = llm::Finish::unknown;
 };

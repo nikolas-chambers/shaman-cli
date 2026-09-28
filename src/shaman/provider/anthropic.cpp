@@ -24,7 +24,13 @@ Json anthropic_body(const ChatRequest& req, int64_t default_max_tokens) {
       } else if (auto* c = std::get_if<ToolCallPart>(&p)) {
         push(role, {{"type", "tool_use"}, {"id", c->id}, {"name", c->name}, {"input", c->input}});
       } else if (auto* r = std::get_if<ToolResultPart>(&p)) {
-        push(role, {{"type", "tool_result"}, {"tool_use_id", r->call_id}, {"content", r->output}, {"is_error", r->is_error}});
+        Json content = r->output;
+        if (!r->images.empty()) {
+          content = Json::array({{{"type", "text"}, {"text", r->output}}});
+          for (auto& i : r->images)
+            content.push_back({{"type", "image"}, {"source", {{"type", "base64"}, {"media_type", i.media_type}, {"data", i.data}}}});
+        }
+        push(role, {{"type", "tool_result"}, {"tool_use_id", r->call_id}, {"content", content}, {"is_error", r->is_error}});
       }
       // Reasoning is not replayed: unsigned thinking blocks are rejected by the API.
     }

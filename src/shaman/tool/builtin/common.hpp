@@ -50,5 +50,18 @@ std::unique_ptr<Tool> make_apply_patch();
 std::unique_ptr<Tool> make_websearch();
 std::unique_ptr<Tool> make_skill(const fs::path& root);
 std::unique_ptr<Tool> make_lsp();
+std::unique_ptr<Tool> make_multiedit();
+std::unique_ptr<Tool> make_question();
+std::unique_ptr<Tool> make_batch();
+std::unique_ptr<Tool> make_http();
+std::unique_ptr<Tool> make_notebook_edit();
+std::unique_ptr<Tool> make_bash_output();
+std::unique_ptr<Tool> make_bash_kill();
+std::unique_ptr<Tool> make_memory();
+std::unique_ptr<Tool> make_bash_input();
+std::unique_ptr<Tool> make_task_output();
+
+std::string image_type(const fs::path& p);  // "" if not an image
+std::string render_notebook(const std::string& json_text);
 
 }  // namespace shaman::tool::detail

@@ -3,6 +3,8 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -60,6 +62,27 @@ class Child {
   int in_ = -1;   // child's stdin (we write)
   int out_ = -1;  // child's stdout (we read)
   std::string buf_;
+};
+
+// Long-running shell command whose output is collected in the background
+// (dev servers, watchers, long builds). Poll with take_output().
+class Background {
+ public:
+  static Result<std::shared_ptr<Background>> start(const std::string& command, const std::filesystem::path& cwd);
+  ~Background();
+  std::string take_output();   // output produced since the last call
+  bool running();
+  int exit_code() const { return exit_code_; }
+  Result<void> write_input(const std::string& data);  // to the job's stdin
+  void kill();
+  const std::string& command() const { return command_; }
+
+ private:
+  Background() = default;
+  void pump();
+  int pid_ = -1, fd_ = -1, in_ = -1, exit_code_ = -1;
+  std::string command_, buf_;
+  std::mutex mu_;
 };
 
 }  // namespace shaman::process

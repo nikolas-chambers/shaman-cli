@@ -1,5 +1,6 @@
 #include "shaman/tui/markdown.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 
 #include "shaman/core/strings.hpp"
@@ -149,10 +150,74 @@ static std::string inline_md(const std::string& s) {
   return out + style::reset;
 }
 
+static std::string inline_md(const std::string& s);
+
+// Render a block of "| a | b |" lines as an aligned table (falls back to wrapping when too wide).
+static std::vector<std::string> render_table(const std::vector<std::string>& block, size_t width) {
+  std::vector<std::vector<std::string>> rows;
+  for (auto& l : block) {
+    auto t = str::trim(l);
+    if (t.front() == '|') t.erase(0, 1);
+    if (!t.empty() && t.back() == '|') t.pop_back();
+    auto cells = str::split(t, '|');
+    for (auto& c : cells) c = str::trim(c);
+    bool separator = std::ranges::all_of(cells, [](const std::string& c) {
+      return !c.empty() && c.find_first_not_of(":-") == std::string::npos;
+    });
+    if (!separator) rows.push_back(cells);
+  }
+  size_t cols = 0;
+  for (auto& r : rows) cols = std::max(cols, r.size());
+  std::vector<size_t> w(cols, 0);
+  for (auto& r : rows)
+    for (size_t i = 0; i < r.size(); ++i) w[i] = std::max(w[i], display_width(r[i]));
+  size_t total = 1;
+  for (auto x : w) total += x + 3;
+  std::vector<std::string> out;
+  if (total > width) {  // too wide: one wrapped line per row
+    for (auto& r : rows)
+      for (auto& l : wrap(str::join(r, " | "), width)) out.push_back(l);
+    return out;
+  }
+  auto bar = [&](const char* l, const char* m, const char* r) {
+    std::string s = std::string(style::dim) + glyph(l, "+");
+    for (size_t i = 0; i < cols; ++i) {
+      for (size_t k = 0; k < w[i] + 2; ++k) s += glyph("─", "-");
+      s += i + 1 < cols ? glyph(m, "+") : glyph(r, "+");
+    }
+    return s + style::reset;
+  };
+  out.push_back(bar("┌", "┬", "┐"));
+  for (size_t r = 0; r < rows.size(); ++r) {
+    std::string s = std::string(style::dim) + glyph("│", "|") + style::reset;
+    for (size_t i = 0; i < cols; ++i) {
+      auto cell = i < rows[r].size() ? rows[r][i] : "";
+      auto pad = std::string(w[i] - display_width(cell), ' ');
+      s += " " + (r == 0 ? std::string(style::bold) + cell + style::reset : inline_md(cell)) + pad + " " + style::dim + glyph("│", "|") + style::reset;
+    }
+    out.push_back(s);
+    if (r == 0 && rows.size() > 1) out.push_back(bar("├", "┼", "┤"));
+  }
+  out.push_back(bar("└", "┴", "┘"));
+  return out;
+}
+
 std::vector<std::string> render_markdown(const std::string& text, size_t width) {
   std::vector<std::string> out;
   bool fence = false;
+  std::vector<std::string> table;
+  auto flush_table = [&] {
+    if (table.empty()) return;
+    auto t = render_table(table, width);
+    out.insert(out.end(), t.begin(), t.end());
+    table.clear();
+  };
   for (auto& raw : str::split(text, '\n')) {
+    if (!fence && str::trim(raw).starts_with("|")) {
+      table.push_back(raw);
+      continue;
+    }
+    flush_table();
     auto line = raw;
     if (!line.empty() && line.back() == '\r') line.pop_back();
     auto t = str::trim(line);
@@ -189,6 +254,7 @@ std::vector<std::string> render_markdown(const std::string& text, size_t width) 
     auto ls = wrap(inline_md(line), width, std::string(indent, ' '));
     out.insert(out.end(), ls.begin(), ls.end());
   }
+  flush_table();
   return out;
 }
 

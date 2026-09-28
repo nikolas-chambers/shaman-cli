@@ -2,6 +2,7 @@
 #include <format>
 
 #include "shaman/core/strings.hpp"
+#include "shaman/diff/diff.hpp"
 #include "shaman/tool/builtin/common.hpp"
 #include "shaman/tool/builtin/edit.hpp"
 
@@ -47,8 +48,9 @@ class Read final : public Tool {
  public:
   std::string name() const override { return "read"; }
   std::string description() const override {
-    return "Read a file. Returns numbered lines. Use offset (1-based line) and limit to page through "
-           "large files. Read a file before editing it.";
+    return "Read a file. Returns numbered lines; use offset (1-based line) and limit to page through large files. "
+           "Images (png, jpg, gif, webp) are shown to you; Jupyter notebooks are rendered cell by cell. "
+           "Read a file before editing it.";
   }
   Json schema() const override {
     return {{"type", "object"},
@@ -65,6 +67,16 @@ class Read final : public Tool {
     if (fs::is_directory(*p, ec)) return error("that is a directory; use the list tool");
     auto content = read_all(*p);
     if (!content) return error("file not found: " + p->string());
+    if (auto mt = image_type(*p); !mt.empty()) {
+      if (content->size() > 5 * 1024 * 1024) return error("image is over 5 MB");
+      Output out{std::format("Image {} ({} bytes) attached for viewing.", rel(ctx, *p), content->size()), false, "View " + rel(ctx, *p)};
+      out.images.push_back({mt, str::base64_encode(*content)});
+      return out;
+    }
+    if (p->extension() == ".ipynb") {
+      if (ctx.read_files) ctx.read_files->insert(*p);
+      return {truncate(render_notebook(*content)), false, "Read " + rel(ctx, *p)};
+    }
     if (content->substr(0, 8192).find('\0') != std::string::npos) return error("binary file; not shown");
     if (ctx.read_files) ctx.read_files->insert(*p);
 
@@ -103,11 +115,14 @@ class Write final : public Tool {
       return error("read the file before overwriting it");
     if (!ctx.permit("edit", p->string(), (exists ? "Overwrite " : "Create ") + rel(ctx, *p)))
       return error("permission denied");
+    auto before = exists ? read_all(*p).value_or("") : "";
     if (!write_all(*p, in.value("content", ""))) return error("failed to write " + p->string());
     if (ctx.read_files) ctx.read_files->insert(*p);
     auto diag = ctx.diagnostics ? ctx.diagnostics(*p) : "";
-    return {std::format("Wrote {} bytes to {}{}", in.value("content", "").size(), rel(ctx, *p), diag), false,
-            (exists ? "Write " : "Create ") + rel(ctx, *p)};
+    Output out{std::format("Wrote {} bytes to {}{}", in.value("content", "").size(), rel(ctx, *p), diag), false,
+               (exists ? "Write " : "Create ") + rel(ctx, *p)};
+    out.diff = diff::unified(before, in.value("content", ""), rel(ctx, *p));
+    return out;
   }
 };
 
@@ -136,7 +151,9 @@ class Edit final : public Tool {
       if (!ctx.permit("edit", p->string(), "Create " + rel(ctx, *p))) return error("permission denied");
       write_all(*p, new_text);
       if (ctx.read_files) ctx.read_files->insert(*p);
-      return {"Created " + rel(ctx, *p), false, "Create " + rel(ctx, *p)};
+      Output out{"Created " + rel(ctx, *p), false, "Create " + rel(ctx, *p)};
+      out.diff = diff::unified("", new_text, rel(ctx, *p));
+      return out;
     }
     if (ctx.read_files && !ctx.read_files->contains(*p)) return error("read the file before editing it");
     auto content = read_all(*p);
@@ -146,7 +163,11 @@ class Edit final : public Tool {
     if (!ctx.permit("edit", p->string(), "Edit " + rel(ctx, *p))) return error("permission denied");
     if (!write_all(*p, *updated)) return error("failed to write " + p->string());
     auto diag = ctx.diagnostics ? ctx.diagnostics(*p) : "";
-    return {"Edited " + rel(ctx, *p) + diag, false, "Edit " + rel(ctx, *p)};
+    Output out{"Edited " + rel(ctx, *p) + diag, false, "Edit " + rel(ctx, *p)};
+    out.diff = diff::unified(*content, read_all(*p).value_or(*updated), rel(ctx, *p));  // after formatting
+    auto st = diff::stats(out.diff);
+    out.title += std::format(" (+{} -{})", st.added, st.removed);
+    return out;
   }
 };
 

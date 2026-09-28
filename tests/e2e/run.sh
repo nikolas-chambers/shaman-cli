@@ -91,6 +91,45 @@ check "skill tool"           "Demo skill body"            "$shaman" run 'call sk
 check "apply_patch tool"     "A added.txt"                "$shaman" run --yolo 'call apply_patch {"patchText":"*** Begin Patch\n*** Add File: added.txt\n+hello patch\n*** End Patch"}'
 check "websearch tool"       "https://example.com/docs"   env SHAMAN_SEARCH_URL="$url/search" "$shaman" run 'call websearch {"query":"example"}'
 
+# --- new tools ----------------------------------------------------------------
+printf 'alpha\nbeta\ngamma\n' > multi.txt
+check "edit needs a read"     "read the file before"       "$shaman" run --yolo 'call multiedit {"filePath":"multi.txt","edits":[{"oldString":"alpha","newString":"A"}]}'
+"$shaman" run --yolo read multi.txt </dev/null >/dev/null 2>&1
+check "multiedit atomic"     "edit 2 failed"              "$shaman" run -c --yolo 'call multiedit {"filePath":"multi.txt","edits":[{"oldString":"alpha","newString":"A"},{"oldString":"nope","newString":"x"}]}'
+check "multiedit untouched"  "alpha"                      cat multi.txt
+check "read survives -c"     "Applied 2 edits"            "$shaman" run -c --yolo 'call multiedit {"filePath":"multi.txt","edits":[{"oldString":"alpha","newString":"A"},{"oldString":"gamma","newString":"G"}]}'
+check "multiedit result"     "A"                          head -1 multi.txt
+check "batch parallel reads" "=== 2 grep"                 "$shaman" run 'call batch {"calls":[{"tool":"read","input":{"filePath":"notes.txt"}},{"tool":"grep","input":{"pattern":"answer"}}]}'
+check "batch refuses writes" "not allowed in batch"       "$shaman" run 'call batch {"calls":[{"tool":"bash","input":{"command":"ls"}}]}'
+check "http tool"            "HTTP 200"                   "$shaman" run "call http {\"url\":\"$url/models\"}"
+check "question without tty" "no user is available"       "$shaman" run 'call question {"question":"Which?","options":["a","b"]}'
+check "memory add"           "Saved to memory"            "$shaman" run 'call memory {"action":"add","text":"Tests run with ctest"}'
+check "memory in prompt"     "Tests run with ctest"       "$shaman" debug prompt
+check "bash background"      "started job1 (running)"     "$shaman" run --yolo 'call bash {"command":"echo booted; sleep 30","background":true}'
+python3 - <<'PY'
+import json
+nb = {"cells": [{"cell_type": "code", "metadata": {}, "source": ["print(1)\n"], "outputs": [{"output_type": "stream", "name": "stdout", "text": ["1\n"]}], "execution_count": 1}],
+      "metadata": {}, "nbformat": 4, "nbformat_minor": 5}
+json.dump(nb, open("nb.ipynb", "w"))
+PY
+check "bash_input to job"    "you said: hello-job"        "$shaman" run --yolo 'seq [{"tool":"bash","input":{"command":"read x; echo you said: $x; sleep 5","background":true}},{"tool":"bash_input","input":{"id":"job1","input":"hello-job"}},{"tool":"bash_output","input":{"id":"job1"}}]'
+check "bash_kill"            "stopped job1"               "$shaman" run --yolo 'seq [{"tool":"bash","input":{"command":"sleep 60","background":true}},{"tool":"bash_kill","input":{"id":"job1"}}]'
+check "task_output"          "echo: hello sub"            "$shaman" run 'seq [{"tool":"task","input":{"description":"d","prompt":"hello sub","subagent_type":"explore","background":true}},{"tool":"task_output","input":{"id":"bg1"}}]'
+check "noninteractive env"   "GTP=0 PAGER=cat"            "$shaman" run --yolo 'call bash {"command":"echo GTP=$GIT_TERMINAL_PROMPT PAGER=$PAGER"}'
+check "secret redacted"      "[REDACTED:api-key]"         "$shaman" run --yolo 'call bash {"command":"echo token sk-proj-abcdefghijklmnopqrstuvwxyz"}'
+check "background subagent"  "started background subagent bg1" "$shaman" run 'call task {"description":"look","prompt":"hello sub","subagent_type":"explore","background":true}'
+check "goal keeps going"     "goal not reached after 2"   env SHAMAN_CONFIG_CONTENT='{"goal_max_rounds":2}' "$shaman" run --goal "finish everything" hello
+check "doctor"               "default model"              "$shaman" doctor
+check "completion bash"      "complete -F _shaman shaman" "$shaman" completion bash
+check "completion fish"      "complete -c shaman"         "$shaman" completion fish
+check "worktree create"      "shaman/feat-x"              bash -c "git add -A >/dev/null 2>&1; git -c user.email=t@t -c user.name=t commit -qm wip >/dev/null 2>&1; '$shaman' worktree feat-x --plain hi 2>&1; git worktree list"
+if command -v crontab >/dev/null; then
+  check "schedule add/list"  "0 9 * * 1-5"                bash -c "'$shaman' schedule add '0 9 * * 1-5' 'daily notes' && '$shaman' schedule list"
+fi
+check "schedule bad cron"    "invalid cron"               "$shaman" schedule add "every day" "x"
+check "read notebook"        "[output]"                   "$shaman" run 'call read {"filePath":"nb.ipynb"}'
+check "read image to model"  "image_url"                  bash -c "'$shaman' run 'call read {\"filePath\":\"pic.png\"}' >/dev/null; tail -1 '$tmp/main.requests.jsonl'"
+
 # --- providers and auth --------------------------------------------------------
 export SHAMAN_CONFIG_CONTENT='{"provider":{"mockant":{"api":"anthropic","baseURL":"'"$url"'","apiKey":"k","models":{"claude-test":{"name":"Claude Test"}}}}}'
 check "anthropic provider"   "anthropic says: the answer is 42" "$shaman" run -m mockant/claude-test read notes.txt
@@ -157,6 +196,32 @@ import sys; sys.path.insert(0, '$repo/sdk/python')
 from shaman_client import Shaman
 sh = Shaman('$srv'); s = sh.create_session()
 print(''.join(e.get('text', '') for e in sh.prompt(s['id'], 'read notes.txt') if e['type'] == 'text'))"
+check "server upload"        '"bytes":5'                  curl -s --noproxy '*' -X POST --data-binary 'hello' "$srv/upload?name=u.txt"
+echo "before edit" > "$project/gui.txt"
+check "server diff/revert/fork" "diff+ turns=1 restored forked" python3 -c "
+import json, urllib.request as u
+op = u.build_opener(u.ProxyHandler({}))
+def call(m, p, b=None):
+    r = op.open(u.Request('$srv' + p, method=m, data=json.dumps(b).encode() if b is not None else None, headers={'Content-Type': 'application/json'}))
+    return r.read().decode()
+s = json.loads(call('POST', '/session', {}))
+seq = 'seq ' + json.dumps([{'tool': 'read', 'input': {'filePath': 'gui.txt'}}, {'tool': 'edit', 'input': {'filePath': 'gui.txt', 'oldString': 'before', 'newString': 'after'}}])
+resp = op.open(u.Request('$srv/session/%s/message' % s['id'], method='POST', data=json.dumps({'text': seq}).encode(), headers={'Content-Type': 'application/json'}))
+events, ev = '', ''
+for line in resp:  # answer permission prompts like a client would
+    line = line.decode(); events += line
+    if line.startswith('event:'): ev = line[6:].strip()
+    elif line.startswith('data:') and ev == 'permission': call('POST', '/permission/' + json.loads(line[5:])['id'], {'reply': 'once'})
+out = ['diff+' if '+after edit' in events else 'nodiff']
+turns = json.loads(call('GET', '/session/%s/turns' % s['id']))
+out.append('turns=%d' % len(turns))
+r = json.loads(call('POST', '/session/%s/revert' % s['id'], {'turn': 0}))
+out.append('restored' if open('$project/gui.txt').read().startswith('before') and r.get('text', '').startswith('seq') else 'not-restored')
+f = json.loads(call('POST', '/session/%s/fork' % s['id'], {}))
+out.append('forked' if f.get('id') and f['id'] != s['id'] else 'no-fork')
+print(' '.join(out))"
+check "server stream ends with a child running" "event: done" bash -c "id=\$(curl -s --noproxy '*' -X POST '$srv/session' -d '{}' | python3 -c 'import json,sys;print(json.load(sys.stdin)[\"id\"])');
+  curl -sN --max-time 15 --noproxy '*' -X POST \"$srv/session/\$id/message\" -d '{\"text\":\"call bash {\\\"command\\\":\\\"tail -f /dev/null\\\",\\\"description\\\":\\\"long job\\\",\\\"background\\\":true}\"}'; pkill -f '^tail -f /dev/null$'"
 check "acp prompt"           '"stopReason":"end_turn"'    bash -c "printf '%s\n' \
   '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":1}}' \
   '{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"session/new\",\"params\":{\"cwd\":\"$project\",\"mcpServers\":[]}}' \

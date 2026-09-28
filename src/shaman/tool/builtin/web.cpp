@@ -20,13 +20,44 @@ std::string strip_tags(const std::string& s) {
   return str::trim(str::html_unescape(std::regex_replace(s, tags, "")));
 }
 
-// Brave Search when BRAVE_SEARCH_API_KEY is set, otherwise DuckDuckGo's HTML
-// endpoint, which needs no key.
+// Tavily, Exa or Brave when their key is set (TAVILY_API_KEY, EXA_API_KEY,
+// BRAVE_SEARCH_API_KEY), otherwise DuckDuckGo's HTML endpoint, which needs no key.
 Result<std::vector<Hit>> search(const std::string& query, int limit, std::atomic<bool>* cancel) {
   std::vector<Hit> hits;
   http::Request req;
   req.timeout_s = 20;
   req.cancel = cancel;
+  auto post_json = [&](const std::string& url, const Json& body, std::vector<std::pair<std::string, std::string>> headers) -> Result<Json> {
+    http::Request r;
+    r.method = "POST";
+    r.url = url;
+    r.body = body.dump();
+    r.timeout_s = 25;
+    r.cancel = cancel;
+    headers.emplace_back("Content-Type", "application/json");
+    r.headers = std::move(headers);
+    auto res = http::send(r);
+    if (!res) return std::unexpected(res.error());
+    if (res->status != 200) return fail(std::format("search HTTP {}: {}", res->status, res->body.substr(0, 200)));
+    try {
+      return Json::parse(res->body);
+    } catch (...) {
+      return fail("bad search response");
+    }
+  };
+  if (const char* key = std::getenv("TAVILY_API_KEY"); key && *key) {
+    auto j = post_json("https://api.tavily.com/search", {{"query", query}, {"max_results", limit}}, {{"Authorization", std::string("Bearer ") + key}});
+    if (!j) return std::unexpected(j.error());
+    for (auto& r : j->value("results", Json::array())) hits.push_back({r.value("title", ""), r.value("url", ""), r.value("content", "").substr(0, 400)});
+    return hits;
+  }
+  if (const char* key = std::getenv("EXA_API_KEY"); key && *key) {
+    auto j = post_json("https://api.exa.ai/search", {{"query", query}, {"numResults", limit}, {"contents", {{"text", {{"maxCharacters", 400}}}}}},
+                       {{"x-api-key", key}});
+    if (!j) return std::unexpected(j.error());
+    for (auto& r : j->value("results", Json::array())) hits.push_back({r.value("title", ""), r.value("url", ""), r.value("text", "")});
+    return hits;
+  }
   if (const char* brave = std::getenv("BRAVE_SEARCH_API_KEY"); brave && *brave) {
     req.url = "https://api.search.brave.com/res/v1/web/search?count=" + std::to_string(limit) + "&q=" + str::url_encode(query);
     req.headers = {{"Accept", "application/json"}, {"X-Subscription-Token", brave}};

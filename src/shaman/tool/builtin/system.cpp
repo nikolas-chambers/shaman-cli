@@ -1,5 +1,6 @@
 // bash, webfetch, todowrite, todoread, task
 #include <format>
+#include <thread>
 #include <regex>
 
 #include "shaman/core/process.hpp"
@@ -22,7 +23,9 @@ class Bash final : public Tool {
             {"properties", {{"command", {{"type", "string"}}},
                             {"description", {{"type", "string"}, {"description", "5-10 word summary"}}},
                             {"timeout", {{"type", "integer"}, {"description", "Milliseconds"}}},
-                            {"workdir", {{"type", "string"}}}}},
+                            {"workdir", {{"type", "string"}}},
+                            {"background", {{"type", "boolean"}, {"description", "Run in the background (servers, watchers); "
+                                                                                 "read output with bash_output, stop with bash_kill"}}}}},
             {"required", {"command"}}};
   }
   Output run(const Json& in, Context& ctx) override {
@@ -30,8 +33,23 @@ class Bash final : public Tool {
     if (command.empty()) return error("command is required");
     auto cwd = ctx.path(in.value("workdir", ctx.root.string()));
     if (!cwd) return error(cwd.error().message);
-    auto title = in.value("description", command);
+    // Always show the real command; the model's description alone could hide what runs.
+    auto desc = in.value("description", "");
+    auto title = desc.empty() || desc == command ? "$ " + command : desc + "  $ " + command;
     if (!ctx.permit("bash", command, "$ " + command)) return error("permission denied: " + command);
+    if (in.value("background", false)) {
+      if (!ctx.jobs) return error("background jobs are not available here");
+      auto job = process::Background::start(command, *cwd);
+      if (!job) return error(job.error().message);
+      auto id = "job" + std::to_string(ctx.jobs->size() + 1);
+      (*ctx.jobs)[id] = *job;
+      std::this_thread::sleep_for(std::chrono::milliseconds(1500));  // catch startup errors and first output
+      auto first = (*job)->take_output();
+      bool alive = (*job)->running();
+      return {truncate(std::format("started {} ({}){}\n{}", id, alive ? "running" : "exited " + std::to_string((*job)->exit_code()),
+                                   alive ? "; read more with bash_output" : "", first)),
+              !alive && (*job)->exit_code() != 0, "$ " + command + " &"};
+    }
     int64_t timeout = std::clamp<int64_t>(in.value("timeout", 120'000), 1'000, 600'000);
     auto res = process::shell(command, {.cwd = *cwd, .timeout = std::chrono::milliseconds(timeout), .cancel = ctx.cancel});
     if (!res) return error(res.error().message);
@@ -140,13 +158,22 @@ class Task final : public Tool {
   Json schema() const override {
     return {{"type", "object"},
             {"properties", {{"description", {{"type", "string"}}}, {"prompt", {{"type", "string"}}},
-                            {"subagent_type", {{"type", "string"}}}}},
+                            {"subagent_type", {{"type", "string"}}},
+                            {"background", {{"type", "boolean"}, {"description", "Start it and continue working; collect the "
+                                                                                 "result later with task_output. Start several to work in parallel."}}}}},
             {"required", {"description", "prompt"}}};
   }
   Output run(const Json& in, Context& ctx) override {
     if (!ctx.subagent) return error("subagents unavailable here");
     auto agent = in.value("subagent_type", "explore");
     if (!ctx.permit("task", agent, "Subagent " + agent + ": " + in.value("description", ""))) return error("permission denied");
+    if (in.value("background", false)) {
+      if (!ctx.subagent_start) return error("background subagents are unavailable here");
+      auto id = ctx.subagent_start(agent, in.value("prompt", ""));
+      if (!id) return error(id.error().message);
+      return {"started background subagent " + *id + "; collect its report with task_output", false,
+              agent + " (background): " + in.value("description", "")};
+    }
     auto res = ctx.subagent(agent, in.value("prompt", ""));
     if (!res) return error(res.error().message);
     return {truncate(*res), false, agent + ": " + in.value("description", "")};
@@ -161,6 +188,28 @@ std::unique_ptr<Tool> make_todowrite() { return std::make_unique<TodoWrite>(); }
 std::unique_ptr<Tool> make_todoread() { return std::make_unique<TodoRead>(); }
 std::unique_ptr<Tool> make_task() { return std::make_unique<Task>(); }
 
+namespace {
+class TaskOutput final : public Tool {
+ public:
+  std::string name() const override { return "task_output"; }
+  std::string description() const override {
+    return "Get the report of a background subagent started with task background=true. wait=true (default) blocks "
+           "until it finishes; wait=false returns immediately if it is still running.";
+  }
+  Json schema() const override {
+    return {{"type", "object"}, {"properties", {{"id", {{"type", "string"}}}, {"wait", {{"type", "boolean"}}}}}, {"required", {"id"}}};
+  }
+  Output run(const Json& in, Context& ctx) override {
+    if (!ctx.subagent_result) return error("no background subagents");
+    auto r = ctx.subagent_result(in.value("id", ""), in.value("wait", true));
+    if (!r) return error(r.error().message);
+    return {truncate(*r), false, "Report from " + in.value("id", "")};
+  }
+};
+}  // namespace
+
+std::unique_ptr<Tool> make_task_output() { return std::make_unique<TaskOutput>(); }
+
 }  // namespace shaman::tool::detail
 
 namespace shaman::tool {
@@ -171,7 +220,9 @@ void register_builtins(Registry& r, const fs::path& root) {
                     make_webfetch, make_websearch, make_todowrite, make_todoread, make_task})
     r.add(make());
   r.add(make_skill(root));
-  r.add(make_lsp());
+  for (auto make : {make_lsp, make_multiedit, make_question, make_batch, make_http, make_notebook_edit, make_bash_output,
+                    make_bash_kill, make_bash_input, make_memory, make_task_output})
+    r.add(make());
 }
 
 }  // namespace shaman::tool

@@ -40,8 +40,11 @@ Json to_json(const Message& m) {
           return j;
         },
         [](const ToolResultPart& r) {
-          return Json{{"type", "tool_result"}, {"call_id", r.call_id}, {"name", r.name},
-                      {"output", r.output}, {"is_error", r.is_error}, {"title", r.title}};
+          Json j{{"type", "tool_result"}, {"call_id", r.call_id}, {"name", r.name},
+                 {"output", r.output}, {"is_error", r.is_error}, {"title", r.title}};
+          for (auto& i : r.images) j["images"].push_back({{"media_type", i.media_type}, {"data", i.data}});
+          if (!r.diff.empty()) j["diff"] = r.diff;
+          return j;
         },
     }, p));
   }
@@ -59,8 +62,12 @@ Message message_from_json(const Json& j) {
     else if (type == "tool_call")
       m.parts.push_back(ToolCallPart{p.value("id", ""), p.value("name", ""), p.value("input", Json::object()), p.value("meta", Json())});
     else if (type == "tool_result")
-      m.parts.push_back(ToolResultPart{p.value("call_id", ""), p.value("name", ""), p.value("output", ""),
-                                       p.value("is_error", false), p.value("title", "")});
+    {
+      ToolResultPart r{p.value("call_id", ""), p.value("name", ""), p.value("output", ""), p.value("is_error", false), p.value("title", "")};
+      for (auto& i : p.value("images", Json::array())) r.images.push_back({i.value("media_type", ""), i.value("data", "")});
+      r.diff = p.value("diff", "");
+      m.parts.push_back(std::move(r));
+    }
   }
   return m;
 }

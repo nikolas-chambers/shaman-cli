@@ -23,6 +23,8 @@ struct Info {
   llm::Usage usage;       // cumulative
   double cost = 0;
   std::vector<std::string> snapshots;  // git tree ids, one per user turn, for /undo
+  std::string goal;                    // /goal: keep working until this is verified done
+  std::vector<size_t> turn_starts;     // message index where each user turn began (parallel to snapshots)
 };
 
 // Sessions live under $XDG_DATA_HOME/shaman/projects/<project-id>/sessions/<id>/:

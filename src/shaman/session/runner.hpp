@@ -5,6 +5,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <thread>
 #include <optional>
 #include <string>
 
@@ -18,6 +19,10 @@
 #include "shaman/tool/tool.hpp"
 
 namespace shaman::session {
+
+/// A short session title from the first message: first line, at most `max` bytes, cut at a word boundary.
+std::string make_title(std::string_view text, size_t max = 60);
+
 
 // What the runner reports while it works. The CLI renders these; tests and
 // other front ends (a future TUI or server) implement their own.
@@ -44,6 +49,7 @@ struct Services {
   bool allow_all = false;          // --yolo
   lsp::Manager* lsp = nullptr;     // optional: diagnostics after edits, lsp tool
   plugin::Host* plugins = nullptr; // optional: hooks
+  std::function<Result<std::string>(const tool::Question&)> question;  // optional: the question tool
 };
 
 struct PromptOptions {
@@ -66,6 +72,17 @@ class Runner {
   // Restore files to the snapshot taken before the last user turn.
   Result<std::string> undo(Info& session);
 
+  struct UserTurn {
+    size_t index;       // 0-based turn number
+    std::string text;   // what the user typed
+  };
+  std::vector<UserTurn> turns(const Info& session) const;
+  // Go back to before turn `n`: files restored to that point (when a snapshot
+  // exists) and the conversation truncated. Returns the text of that turn.
+  Result<std::string> revert(Info& session, size_t n);
+  // New session with the conversation up to (not including) turn `n`; all of it when n is past the end.
+  Result<Info> fork(const Info& session, size_t n);
+
   std::vector<tool::Todo>& todos() { return todos_; }
 
  private:
@@ -87,6 +104,18 @@ class Runner {
   std::set<std::filesystem::path> read_files_;
   std::vector<tool::Todo> todos_;
   std::vector<std::string> recent_calls_;  // doom-loop detection
+  std::map<std::string, std::shared_ptr<process::Background>> jobs_;  // bash background=true
+
+  struct BackgroundTask {
+    std::thread thread;
+    std::mutex mu;
+    bool done = false;
+    std::string result;
+  };
+  std::map<std::string, std::shared_ptr<BackgroundTask>> tasks_;  // task background=true
+
+ public:
+  ~Runner();
 };
 
 }  // namespace shaman::session

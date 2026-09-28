@@ -33,6 +33,8 @@ struct ToolResultPart {
   std::string output;
   bool is_error = false;
   std::string title;  // UI summary ("Read src/main.cpp"); not sent to models
+  std::vector<ImagePart> images;  // e.g. a screenshot the tool produced or read
+  std::string diff;               // file changes for display; not sent to models
 };
 
 using Part = std::variant<TextPart, ReasoningPart, ImagePart, ToolCallPart, ToolResultPart>;

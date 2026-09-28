@@ -13,6 +13,7 @@
 
 #include "shaman/command/command.hpp"
 #include "shaman/core/paths.hpp"
+#include "shaman/extras/notify.hpp"
 #include "shaman/core/process.hpp"
 #include "shaman/core/strings.hpp"
 #include "shaman/session/archive.hpp"
@@ -38,6 +39,7 @@ struct Block {
   std::string text;
   std::string detail;  // tool output
   bool failed = false;
+  std::string diff;    // file changes (shown inline)
 };
 
 struct PickItem {
@@ -72,7 +74,8 @@ class Ui {
     session_ = *s;
     commands_ = command::discover(app_.config, app_.root);
     runner_ = std::make_unique<session::Runner>(app_.services([this](const permission::Request& r) { return ask(r); },
-                                                              &cancel_, opts_.allow_all));
+                                                              &cancel_, opts_.allow_all,
+                                                              [this](const tool::Question& q) { return ask_question(q); }));
     if (opts_.model) model_ = *opts_.model;
     load_history();
     load_transcript();
@@ -129,7 +132,7 @@ class Ui {
         if (auto* t = std::get_if<llm::TextPart>(&p))
           blocks_.push_back({m.role == llm::Role::user ? Block::user : Block::assistant, t->text});
         else if (auto* r = std::get_if<llm::ToolResultPart>(&p))
-          blocks_.push_back({Block::tool, r->title.empty() ? r->name : r->title, r->output, r->is_error});
+          blocks_.push_back({Block::tool, r->title.empty() ? r->name : r->title, r->output, r->is_error, r->diff});
       }
     scroll_ = 0;
   }
@@ -140,11 +143,13 @@ class Ui {
     session_ = *s;
     blocks_.clear();
     runner_ = std::make_unique<session::Runner>(app_.services([this](const permission::Request& r) { return ask(r); },
-                                                              &cancel_, opts_.allow_all));
+                                                              &cancel_, opts_.allow_all,
+                                                              [this](const tool::Question& q) { return ask_question(q); }));
   }
 
   // ---- permission dialog ----
   permission::Reply ask(const permission::Request& r) {
+    extras::notify(extras::notify_settings(app_.config), "shaman needs permission", r.title);
     std::unique_lock lock(mu_);
     perm_ = r;
     perm_reply_.reset();
@@ -152,6 +157,28 @@ class Ui {
     perm_cv_.wait(lock, [&] { return perm_reply_.has_value() || quit_; });
     perm_.reset();
     return perm_reply_.value_or(permission::Reply::reject);
+  }
+
+  // ---- question dialog (reuses the picker; typing a non-matching answer is allowed) ----
+  Result<std::string> ask_question(const tool::Question& q) {
+    extras::notify(extras::notify_settings(app_.config), "shaman has a question", q.question);
+    std::unique_lock lock(mu_);
+    std::vector<PickItem> items;
+    for (auto& o : q.options) items.push_back({o, "", [this, o] { answer_ = o; }});
+    answer_.reset();
+    question_open_ = true;
+    open_picker("Question: " + q.question.substr(0, 60), std::move(items));
+    dirty_ = true;
+    perm_cv_.wait(lock, [&] { return !question_open_ || quit_; });
+    auto a = answer_;
+    answer_.reset();
+    if (!a || a->empty()) return fail("the user dismissed the question; make a sensible choice and continue");
+    return *a;
+  }
+  void close_question() {
+    if (!question_open_) return;
+    question_open_ = false;
+    perm_cv_.notify_all();
   }
 
   // ---- running a turn ----
@@ -174,7 +201,11 @@ class Ui {
     cancel_ = false;
     worker_ = std::thread([this, text, po] {
       auto info = session_;
+      auto t0 = std::chrono::steady_clock::now();
       auto r = runner_->prompt(info, text, bridge_, po);
+      auto secs = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - t0).count();
+      auto ns = extras::notify_settings(app_.config);
+      if (secs >= ns.min_seconds && !cancel_) extras::notify(ns, "shaman", r ? "Done: " + info.title : "Error: " + r.error().message);
       std::lock_guard lock(mu_);
       session_ = info;
       if (!r && !cancel_) blocks_.push_back({Block::error, r.error().message});
@@ -203,7 +234,31 @@ class Ui {
     }
     if (cmd == "agent") return set_agent(arg), true;
     if (cmd == "details") return details_ = !details_, true;
+    if (cmd == "goal") {
+      session_.goal = arg;
+      app_.store->save(session_);
+      if (arg.empty()) return add_block({Block::notice, "goal cleared"}), true;
+      if (busy_) return add_block({Block::notice, "goal set: " + arg}), true;
+      blocks_.push_back({Block::user, "/goal " + arg});
+      start("Work towards the goal: " + arg, {});
+      return true;
+    }
     if (cmd == "editor") return editor(), true;
+    if (cmd == "revert" || cmd == "fork") {
+      if (busy_) return add_block({Block::notice, "busy"}), true;
+      bool fork = cmd == "fork";
+      std::vector<PickItem> items;
+      auto ts = runner_->turns(session_);
+      if (fork) items.push_back({"(whole conversation)", "", [this] { do_fork(SIZE_MAX); }});
+      for (auto it = ts.rbegin(); it != ts.rend(); ++it) {
+        auto label = str::replace_all(it->text.substr(0, 70), "\n", " ");
+        items.push_back({std::format("#{} {}", it->index + 1, label), fork ? "fork before this" : "revert to before this",
+                         [this, n = it->index, fork] { fork ? do_fork(n) : do_revert(n); }});
+      }
+      if (items.empty()) return add_block({Block::notice, "no turns to " + cmd + " to"}), true;
+      open_picker(fork ? "Fork from..." : "Revert to before...", std::move(items));
+      return true;
+    }
     if (cmd == "undo" || cmd == "compact" || cmd == "export" || cmd == "share" || cmd == "cost" || cmd == "todos")
       return session_action(cmd, arg), true;
     if (auto* c = command::find(commands_, cmd)) {
@@ -255,6 +310,22 @@ class Ui {
     add_block({Block::notice, (cmd == "share" ? "shareable page: " : "exported to ") + path.string()});
   }
 
+  void do_revert(size_t n) {
+    auto r = runner_->revert(session_, n);
+    if (!r) return add_block({Block::error, r.error().message});
+    load_transcript();
+    input_ = *r;  // put the reverted message back in the input so it can be edited and re-sent
+    cursor_ = input_.size();
+    add_block({Block::notice, std::format("reverted to before turn {}; files restored. Edit and press Enter to retry.", n + 1)});
+  }
+  void do_fork(size_t n) {
+    auto r = runner_->fork(session_, n);
+    if (!r) return add_block({Block::error, r.error().message});
+    session_ = *r;
+    load_transcript();
+    add_block({Block::notice, "forked into a new session: " + session_.title});
+  }
+
   void set_agent(const std::string& name) {
     auto* a = app_.agents->find(name);
     if (!a || a->mode == agent::Mode::subagent) return add_block({Block::error, "unknown primary agent: " + name});
@@ -275,7 +346,8 @@ class Ui {
     add_block({Block::notice,
                "Enter send · Alt/Ctrl-J newline · Tab complete or switch agent · Up/Down history · PgUp/PgDn scroll\n"
                "Esc stop turn · Ctrl-P palette · Ctrl-E external editor · Ctrl-O tool details · Ctrl-C/Ctrl-D quit\n"
-               "/new /sessions /models /model <id> /agents /agent <name> /undo /compact /export [md|json|html] /share\n"
+               "/new /sessions /models /model <id> /agents /agent <name> /goal <text> /undo /revert /fork /compact\n"
+               "/export [md|json|html] /share\n"
                "/cost /todos /details /editor /help /exit, plus custom commands (Ctrl-P)"});
   }
 
@@ -290,7 +362,7 @@ class Ui {
   void pick_session() {
     std::vector<PickItem> items;
     for (auto& s : app_.store->list())
-      items.push_back({s.title.empty() ? s.id : s.title, s.id, [this, s] {
+      items.push_back({s.title.empty() ? "(untitled) " + s.id : s.title, s.id, [this, s] {
                          session_ = s;
                          load_transcript();
                        }});
@@ -323,6 +395,8 @@ class Ui {
         {"Switch model", "/models", [this] { pick_model(); }},
         {"Switch agent", "/agents", [this] { pick_agent(); }},
         {"Undo file changes", "/undo", [this] { session_action("undo", ""); }},
+        {"Revert to an earlier message", "/revert", [this] { slash("/revert"); }},
+        {"Fork this session", "/fork", [this] { slash("/fork"); }},
         {"Compact conversation", "/compact", [this] { session_action("compact", ""); }},
         {"Export as Markdown", "/export", [this] { session_action("export", ""); }},
         {"Share as HTML page", "/share", [this] { session_action("share", ""); }},
@@ -372,7 +446,7 @@ class Ui {
     auto word = input_.substr(word_start, cursor_ - word_start);
     std::vector<std::string> options;
     if (word_start == 0 && word.starts_with("/")) {
-      for (auto name : {"new", "sessions", "models", "model", "agents", "agent", "undo", "compact", "export", "share",
+      for (auto name : {"new", "goal", "revert", "fork", "sessions", "models", "model", "agents", "agent", "undo", "compact", "export", "share",
                         "cost", "todos", "details", "editor", "help", "exit"})
         if (std::string(name).starts_with(word.substr(1))) options.push_back("/" + std::string(name));
       for (auto& c : commands_)
@@ -435,9 +509,16 @@ class Ui {
       }
       return;
     }
-    if (!picker_items_.empty() || !picker_title_.empty()) {  // modal picker
+    if (!picker_items_.empty() || !picker_title_.empty() || question_open_) {  // modal picker
       auto f = filtered();
-      if (k.type == KeyType::esc || (k.type == KeyType::ctrl && k.ctrl == 'c')) picker_title_.clear(), picker_items_.clear();
+      if (k.type == KeyType::esc || (k.type == KeyType::ctrl && k.ctrl == 'c')) {
+        picker_title_.clear(), picker_items_.clear();
+        close_question();
+      } else if (k.type == KeyType::enter && question_open_ && (f.empty() || picker_items_.empty())) {
+        answer_ = picker_filter_;  // free-form answer typed into the filter box
+        picker_title_.clear(), picker_items_.clear();
+        close_question();
+      }
       else if (k.type == KeyType::up) picker_sel_ = picker_sel_ == 0 ? 0 : picker_sel_ - 1;
       else if (k.type == KeyType::down) picker_sel_ = std::min(picker_sel_ + 1, f.empty() ? 0 : f.size() - 1);
       else if (k.type == KeyType::backspace && !picker_filter_.empty()) picker_filter_.pop_back(), picker_sel_ = 0;
@@ -446,6 +527,7 @@ class Ui {
         auto action = picker_items_[f[std::min(picker_sel_, f.size() - 1)]].action;
         picker_title_.clear(), picker_items_.clear();
         action();
+        close_question();
       }
       return;
     }
@@ -547,7 +629,20 @@ class Ui {
         case Block::tool: {
           auto line = std::string(b.failed ? RED : CYAN) + (b.failed ? glyph("✗ ", "x ") : glyph("› ", "> ")) + R + DIM + b.text + R;
           out.push_back(line);
-          if (details_ && !b.detail.empty()) {
+          if (!b.diff.empty()) {  // edits show their diff inline; Ctrl-O shows all of it
+            auto ls = str::lines(b.diff);
+            size_t shown = 0, limit = details_ ? 400 : 24;
+            for (auto& l : ls) {
+              if (l.starts_with("---") || l.starts_with("+++")) continue;
+              if (++shown > limit) {
+                out.push_back(std::format("    {}... {} more lines (Ctrl-O){}", DIM, ls.size() - shown, R));
+                break;
+              }
+              const char* c = l.starts_with("+") ? "\x1b[32m" : l.starts_with("-") ? "\x1b[31m" : l.starts_with("@@") ? CYAN : DIM;
+              out.push_back("    " + std::string(c) + clip(l, width - 4) + R);
+            }
+          }
+          if (details_ && !b.detail.empty() && b.diff.empty()) {
             auto ls = str::lines(b.detail);
             for (size_t i = 0; i < ls.size() && i < 12; ++i)
               for (auto& l : wrap(std::string(DIM) + ls[i], width - 4)) out.push_back("    " + l);
@@ -600,7 +695,7 @@ class Ui {
       if (auto d = app_.providers->default_model()) model = d->ref();
     auto dot = glyph(" · ", " | ");
     put(std::format(" {}shaman{}{}{}{}{}{}{}{}{}", BOLD, R, DIM, dot, R + std::string(ACCENT), agent ? agent->name : session_.agent,
-                    R + std::string(DIM) + dot, model, dot, (session_.title.empty() ? "new session" : session_.title.substr(0, 60)) + R));
+                    R + std::string(DIM) + dot, model, dot, (session_.title.empty() ? std::string("new session") : session_.title) + R));
     for (int i = 0; i < body_h; ++i) {
       int idx = first + i;
       put(" " + (idx < int(lines.size()) ? lines[idx] : ""));
@@ -633,7 +728,7 @@ class Ui {
     int cur_row = input_top + std::clamp(crow - start_row, 0, in_h - 1);
 
     if (perm_) out += overlay_permission(sz);
-    else if (!picker_title_.empty()) out += overlay_picker(sz);
+    else if (!picker_title_.empty() || question_open_) out += overlay_picker(sz);
     else out += std::format("\x1b[{};{}H\x1b[?25h", cur_row, ccol + 3);
     term_.write(out);
     term_.flush();
@@ -675,7 +770,7 @@ class Ui {
       rows.push_back(i == picker_sel_ ? std::string(INVERT) + " " + label + " " + R + " " + DIM + hint + R
                                       : " " + label + "  " + DIM + hint + R);
     }
-    if (f.empty()) rows.push_back(std::string(DIM) + " no matches" + R);
+    if (f.empty()) rows.push_back(std::string(DIM) + (question_open_ ? " type an answer, then Enter" : " no matches") + R);
     return box(sz, w, h, picker_title_, rows) + "\x1b[?25l";
   }
 
@@ -711,6 +806,8 @@ class Ui {
   std::vector<Block> blocks_;
   std::optional<permission::Request> perm_;
   std::optional<permission::Reply> perm_reply_;
+  std::optional<std::string> answer_;
+  bool question_open_ = false;
   std::string picker_title_, picker_filter_;
   std::vector<PickItem> picker_items_;
   size_t picker_sel_ = 0;
@@ -731,7 +828,7 @@ class Ui {
 void Bridge::text(std::string_view t) { ui_.append_text(Block::assistant, t); }
 void Bridge::reasoning(std::string_view t) { ui_.append_text(Block::reasoning, t); }
 void Bridge::tool_start(const llm::ToolCallPart&) {}
-void Bridge::tool_end(const llm::ToolCallPart&, const tool::Output& o) { ui_.add_block({Block::tool, o.title, o.text, o.is_error}); }
+void Bridge::tool_end(const llm::ToolCallPart&, const tool::Output& o) { ui_.add_block({Block::tool, o.title, o.text, o.is_error, o.diff}); }
 void Bridge::step_end(int, const llm::Usage&, const std::string& model) { ui_.set_model(model); }
 void Bridge::notice(std::string_view n) { ui_.add_block({Block::notice, std::string(n)}); }
 

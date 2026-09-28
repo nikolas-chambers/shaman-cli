@@ -4,283 +4,443 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>shaman</title>
+<link rel="icon" type="image/png" href="data:image/png;base64,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">
 <style>
 :root {
-  --bg: #ffffff; --panel: #f6f6f8; --fg: #1c1c21; --muted: #6d6d78; --line: #e4e4ea;
-  --accent: #5b4bdb; --accent-fg: #fff; --user: #efedff; --err: #c62828; --ok: #2e7d32; --code: #f1f1f4;
+  --bg:#ffffff; --panel:#f5f7f9; --fg:#14181c; --muted:#66707a; --line:#e2e7ec; --accent:#0aa7b3; --accent-fg:#fff;
+  --user:#e8f7f8; --err:#c62828; --add:#1a7f37; --add-bg:#e6f6ea; --del:#b3261e; --del-bg:#fbe9e7; --code:#f0f3f5;
+  --icon-filter: invert(1) hue-rotate(180deg) brightness(1.05);
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #111114; --panel: #18181d; --fg: #ececf1; --muted: #9a9aa6; --line: #2a2a32;
-    --accent: #a99cff; --accent-fg: #111114; --user: #221f3a; --err: #ef6b6b; --ok: #6fcf7a; --code: #1f1f26;
-  }
-}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg:#0b0e11; --panel:#12171c; --fg:#e8eef2; --muted:#8b98a3; --line:#1f2830; --accent:#22e4f0; --accent-fg:#031214;
+  --user:#0f2327; --err:#ef6b6b; --add:#6fd98a; --add-bg:#0f2a18; --del:#ff8a80; --del-bg:#2e1414; --code:#161d23; --icon-filter:none; } }
 :root[data-theme="dark"] {
-  --bg: #111114; --panel: #18181d; --fg: #ececf1; --muted: #9a9aa6; --line: #2a2a32;
-  --accent: #a99cff; --accent-fg: #111114; --user: #221f3a; --err: #ef6b6b; --ok: #6fcf7a; --code: #1f1f26;
-}
-* { box-sizing: border-box; }
-html, body { height: 100%; margin: 0; }
-body { background: var(--bg); color: var(--fg); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; display: flex; }
-button, select, textarea, input { font: inherit; color: inherit; }
-button { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
-button:hover { border-color: var(--accent); }
-button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
-select { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; max-width: 260px; }
-#side { width: 270px; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
-#side header { padding: 16px; display: flex; align-items: center; justify-content: space-between; }
-#side h1 { font-size: 18px; margin: 0; letter-spacing: .02em; }
-#sessions { overflow-y: auto; flex: 1; padding: 0 8px 8px; }
-.sess { padding: 8px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
-.sess:hover { background: var(--bg); color: var(--fg); }
-.sess.active { background: var(--bg); color: var(--fg); font-weight: 600; }
-#main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-#bar { display: flex; gap: 8px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-#bar .spacer { flex: 1; }
-#title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
-#log { flex: 1; overflow-y: auto; padding: 20px max(16px, calc((100% - 860px) / 2)); }
-.msg { margin: 0 0 16px; }
-.msg.user { background: var(--user); border-radius: 12px; padding: 10px 14px; white-space: pre-wrap; }
-.msg.assistant p { margin: 0 0 10px; }
-.msg.notice { color: var(--muted); font-size: 13px; }
-.msg.error { color: var(--err); }
-.msg pre { background: var(--code); border-radius: 8px; padding: 10px 12px; overflow-x: auto; font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; }
-.msg code { background: var(--code); border-radius: 4px; padding: 1px 4px; font: 13px ui-monospace, Menlo, Consolas, monospace; }
-.msg pre code { background: none; padding: 0; }
-.reasoning { color: var(--muted); font-style: italic; font-size: 14px; white-space: pre-wrap; }
-details.tool { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 8px; font-size: 13px; }
-details.tool summary { padding: 6px 10px; cursor: pointer; color: var(--muted); list-style: none; }
-details.tool summary::before { content: "› "; color: var(--accent); }
-details.tool.failed summary::before { content: "✗ "; color: var(--err); }
-details.tool pre { margin: 0; border-top: 1px solid var(--line); padding: 8px 10px; max-height: 320px; overflow: auto; white-space: pre-wrap;
-  font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; }
-#composer { border-top: 1px solid var(--line); padding: 12px max(16px, calc((100% - 860px) / 2)) 16px; }
-#input { width: 100%; min-height: 56px; max-height: 40vh; resize: vertical; background: var(--panel); border: 1px solid var(--line);
-  border-radius: 12px; padding: 10px 12px; outline: none; }
-#input:focus { border-color: var(--accent); }
-#row { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
-#row .hint { color: var(--muted); font-size: 12px; flex: 1; }
-#usage { color: var(--muted); font-size: 12px; }
-.modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; align-items: center; justify-content: center; padding: 16px; }
-.modal.open { display: flex; }
-.card { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; padding: 18px; max-width: 560px; width: 100%; }
-.card h3 { margin: 0 0 8px; font-size: 16px; }
-.card pre { background: var(--code); padding: 8px 10px; border-radius: 8px; white-space: pre-wrap; word-break: break-all; font-size: 13px; }
-.card .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
-.spin { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); animation: pulse 1s infinite; }
-@keyframes pulse { 50% { opacity: .25; } }
-#menu { display: none; }
-@media (max-width: 760px) {
-  #side { position: fixed; z-index: 5; inset: 0 auto 0 0; transform: translateX(-100%); transition: transform .2s; }
-  #side.open { transform: none; }
-  #menu { display: inline-block; }
-  #title { max-width: 30vw; }
+  --bg:#0b0e11; --panel:#12171c; --fg:#e8eef2; --muted:#8b98a3; --line:#1f2830; --accent:#22e4f0; --accent-fg:#031214;
+  --user:#0f2327; --err:#ef6b6b; --add:#6fd98a; --add-bg:#0f2a18; --del:#ff8a80; --del-bg:#2e1414; --code:#161d23; --icon-filter:none; }
+* { box-sizing:border-box; }
+html, body { height:100%; margin:0; }
+body { background:var(--bg); color:var(--fg); font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; display:flex; }
+button, select, textarea, input { font:inherit; color:inherit; }
+button { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:6px 11px; cursor:pointer; }
+button:hover { border-color:var(--accent); }
+button.primary { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); font-weight:600; }
+button.ghost { background:none; border-color:transparent; color:var(--muted); padding:4px 8px; }
+button.ghost:hover { color:var(--fg); border-color:var(--line); }
+select, input.text { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:5px 8px; }
+select { max-width:240px; }
+#side { width:280px; background:var(--panel); border-right:1px solid var(--line); display:flex; flex-direction:column; }
+.brand { display:flex; align-items:center; gap:10px; padding:14px 14px 10px; }
+.brand img { width:30px; height:30px; border-radius:8px; filter:var(--icon-filter); }
+.brand b { font-size:17px; letter-spacing:.03em; flex:1; }
+#search { margin:0 12px 8px; }
+#sessions { overflow-y:auto; flex:1; padding:0 8px 8px; }
+.sess { display:flex; align-items:center; gap:4px; padding:7px 8px 7px 10px; border-radius:8px; cursor:pointer; color:var(--muted); }
+.sess span { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sess .acts { display:none; }
+.sess:hover { background:var(--bg); color:var(--fg); } .sess:hover .acts { display:flex; }
+.sess.active { background:var(--bg); color:var(--fg); font-weight:600; }
+.sess .acts button { padding:0 6px; font-size:13px; border:none; background:none; color:var(--muted); }
+#main { flex:1; display:flex; flex-direction:column; min-width:0; }
+#bar { display:flex; gap:6px; align-items:center; padding:9px 16px; border-bottom:1px solid var(--line); }
+#bar select { max-width:210px; flex:none; }
+#bar button { flex:none; }
+#bar .spacer { flex:1; }
+#title { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1 1 0; }
+#log { flex:1; overflow-y:auto; padding:20px max(16px,calc((100% - 880px)/2)); }
+.msg { margin:0 0 16px; }
+.msg.user { background:var(--user); border-radius:12px; padding:10px 14px; white-space:pre-wrap; position:relative; }
+.msg.user .tools { position:absolute; right:8px; top:6px; display:none; gap:4px; }
+.msg.user:hover .tools { display:flex; }
+.msg.user .tools button { font-size:12px; padding:2px 8px; }
+.msg.assistant p { margin:0 0 10px; }
+.msg.assistant table { border-collapse:collapse; margin:8px 0; } .msg.assistant td, .msg.assistant th { border:1px solid var(--line); padding:4px 10px; }
+.msg.notice { color:var(--muted); font-size:13px; }
+.msg.error { color:var(--err); }
+.codeblock { position:relative; margin:8px 0; }
+.codeblock .lang { position:absolute; left:10px; top:4px; font-size:11px; color:var(--muted); }
+.codeblock button { position:absolute; right:6px; top:4px; font-size:11px; padding:1px 7px; opacity:.7; }
+.msg pre { background:var(--code); border-radius:8px; padding:22px 12px 10px; overflow-x:auto; font:13px/1.5 ui-monospace,Menlo,Consolas,monospace; margin:0; }
+.msg code { background:var(--code); border-radius:4px; padding:1px 4px; font:13px ui-monospace,Menlo,Consolas,monospace; }
+.msg pre code { background:none; padding:0; }
+.tok-k { color:var(--accent); } .tok-s { color:var(--add); } .tok-c { color:var(--muted); font-style:italic; } .tok-n { color:#c77dff; }
+.reasoning { color:var(--muted); font-style:italic; font-size:14px; white-space:pre-wrap; }
+details.tool { border:1px solid var(--line); border-radius:8px; margin:0 0 8px; font-size:13px; }
+details.tool summary { padding:6px 10px; cursor:pointer; color:var(--muted); list-style:none; }
+details.tool summary::before { content:"› "; color:var(--accent); }
+details.tool.failed summary::before { content:"✗ "; color:var(--err); }
+details.tool pre { margin:0; border-top:1px solid var(--line); padding:8px 10px; max-height:360px; overflow:auto; white-space:pre-wrap; font:12px/1.5 ui-monospace,Menlo,Consolas,monospace; }
+.diff { border-top:1px solid var(--line); font:12px/1.5 ui-monospace,Menlo,Consolas,monospace; max-height:420px; overflow:auto; }
+.diff div { padding:0 10px; white-space:pre; } .diff .a { background:var(--add-bg); color:var(--add); } .diff .d { background:var(--del-bg); color:var(--del); }
+.diff .h { color:var(--accent); background:var(--panel); }
+#todos { display:none; border:1px solid var(--line); border-radius:10px; padding:8px 12px; margin:0 0 10px; font-size:13px; }
+#todos.on { display:block; } #todos div { color:var(--muted); } #todos .doing { color:var(--fg); font-weight:600; } #todos .done { text-decoration:line-through; }
+#composer { border-top:1px solid var(--line); padding:12px max(16px,calc((100% - 880px)/2)) 14px; position:relative; }
+#attachments { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px; }
+.chip { background:var(--panel); border:1px solid var(--line); border-radius:999px; padding:2px 10px; font-size:12px; }
+.chip button { border:none; background:none; padding:0 0 0 6px; color:var(--muted); }
+#input { width:100%; min-height:56px; max-height:40vh; resize:vertical; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:10px 12px; outline:none; }
+#input:focus { border-color:var(--accent); }
+#composer.drag #input { border-style:dashed; border-color:var(--accent); }
+#row { display:flex; gap:8px; margin-top:8px; align-items:center; flex-wrap:wrap; }
+#row .hint { color:var(--muted); font-size:12px; flex:1; min-width:120px; }
+#usage { color:var(--muted); font-size:12px; display:flex; align-items:center; gap:8px; }
+#ctx { width:80px; height:6px; background:var(--line); border-radius:3px; overflow:hidden; } #ctx i { display:block; height:100%; width:0; background:var(--accent); }
+#goal { width:180px; }
+#menu-cmd { position:absolute; bottom:calc(100% - 4px); left:max(16px,calc((100% - 880px)/2)); background:var(--bg); border:1px solid var(--line); border-radius:10px;
+  box-shadow:0 8px 30px rgba(0,0,0,.18); display:none; min-width:320px; max-height:280px; overflow:auto; z-index:3; }
+#menu-cmd div { padding:6px 12px; cursor:pointer; display:flex; gap:10px; } #menu-cmd div span { color:var(--muted); font-size:13px; }
+#menu-cmd div.sel { background:var(--panel); }
+.modal { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; padding:16px; z-index:5; }
+.modal.open { display:flex; }
+.card { background:var(--bg); border:1px solid var(--line); border-radius:14px; padding:18px; max-width:560px; width:100%; }
+.card h3 { margin:0 0 8px; font-size:16px; }
+.card pre { background:var(--code); padding:8px 10px; border-radius:8px; white-space:pre-wrap; word-break:break-all; font-size:13px; }
+.card .actions { display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
+.spin { display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--accent); animation:pulse 1s infinite; }
+@keyframes pulse { 50% { opacity:.25; } }
+#menu { display:none; }
+@media (max-width:780px) {
+  #side { position:fixed; z-index:4; inset:0 auto 0 0; transform:translateX(-100%); transition:transform .2s; }
+  #side.open { transform:none; }
+  #menu { display:inline-block; }
+  #bar { flex-wrap:wrap; } #title { max-width:60vw; } #goal { width:120px; }
 }
 </style>
 </head>
 <body>
 <aside id="side">
-  <header><h1>shaman</h1><button class="primary" id="new">New</button></header>
+  <div class="brand"><img src="data:image/png;base64,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" alt=""><b>shaman</b><button class="primary" id="new">New</button></div>
+  <input id="search" class="text" placeholder="Search sessions">
   <div id="sessions"></div>
 </aside>
 <main id="main">
   <div id="bar">
-    <button id="menu" aria-label="Sessions">☰</button>
-    <span id="title">new session</span>
-    <span class="spacer"></span>
+    <button id="menu" class="ghost" aria-label="Sessions">☰</button>
+    <span id="title">New session</span>
     <select id="agent" title="Agent"></select>
     <select id="model" title="Model"></select>
-    <button id="undo" title="Restore files to before the last turn">Undo</button>
-    <button id="compact" title="Summarise to free context">Compact</button>
-    <button id="export" title="Download as Markdown">Export</button>
-    <button id="theme" title="Toggle theme">◐</button>
+    <button id="undo" class="ghost" title="Restore files to before the last turn">Undo</button>
+    <button id="compact" class="ghost" title="Summarise to free context">Compact</button>
+    <button id="export" class="ghost" title="Download Markdown">Export</button>
+    <button id="share" class="ghost" title="Download a shareable HTML page">Share</button>
+    <button id="theme" class="ghost" title="Toggle light/dark">◐</button>
   </div>
   <div id="log"></div>
   <div id="composer">
-    <textarea id="input" placeholder="Ask shaman anything. @path attaches a file. Enter sends, Shift+Enter for a new line."></textarea>
+    <div id="menu-cmd"></div>
+    <div id="todos"></div>
+    <div id="attachments"></div>
+    <textarea id="input" placeholder="Ask shaman anything. / for commands, @path for files; drop or paste images. Enter sends, Shift+Enter for a new line."></textarea>
     <div id="row">
+      <button class="ghost" id="attach" title="Attach files">＋ Attach</button>
+      <input type="file" id="file" multiple hidden>
+      <input id="goal" class="text" placeholder="Goal (optional)" title="Keep working until this is verified done">
       <span class="hint" id="status"></span>
-      <span id="usage"></span>
+      <span id="usage"><span id="ctx" title="Context used"><i></i></span><span id="cost"></span></span>
       <button id="stop" hidden>Stop</button>
       <button class="primary" id="send">Send</button>
     </div>
   </div>
 </main>
 <div class="modal" id="perm"><div class="card">
-  <h3 id="perm-title">Permission</h3>
-  <pre id="perm-subject"></pre>
-  <div class="actions">
-    <button data-reply="reject">Deny</button>
-    <button data-reply="always">Always</button>
-    <button class="primary" data-reply="once">Allow once</button>
-  </div>
+  <h3 id="perm-title">Permission</h3><pre id="perm-subject"></pre>
+  <div class="actions"><button data-reply="reject">Deny</button><button data-reply="always">Always</button><button class="primary" data-reply="once">Allow once</button></div>
+</div></div>
+<div class="modal" id="ask"><div class="card">
+  <h3 id="ask-title">Question</h3>
+  <div id="ask-options" style="display:flex;flex-direction:column;gap:6px;margin:10px 0"></div>
+  <input id="ask-text" class="text" placeholder="Or type your own answer" style="width:100%">
+  <div class="actions"><button id="ask-skip">Skip</button><button class="primary" id="ask-send">Answer</button></div>
 </div></div>
 <div class="modal" id="auth"><div class="card">
-  <h3>Server token</h3>
-  <p>This shaman server requires a token (<code>shaman serve --token</code>).</p>
-  <input id="token" type="password" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--panel)">
+  <h3>Server token</h3><p>This server requires a token (<code>shaman serve --token</code>).</p>
+  <input id="token" type="password" class="text" style="width:100%">
   <div class="actions"><button class="primary" id="token-save">Save</button></div>
 </div></div>
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
-const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } },
-                set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
 let token = store.get("shaman.token") || "";
-let current = null, busy = false, pendingPermission = null, opening = Promise.resolve();
+let current = null, busy = false, pendingPermission = null, pendingQuestion = null, opening = Promise.resolve();
+let models = [], commands = [], attachments = [], allSessions = [];
+const builtins = [["new","new session"],["undo","restore files from before the last turn"],["revert","go back to an earlier message"],
+  ["fork","copy this session into a new one"],["compact","summarise to free context"],["goal","keep working until done: /goal <text>"],
+  ["export","download Markdown"],["share","download HTML page"],["model","switch model: /model <id>"],["agent","switch agent: /agent <name>"]];
 
-async function api(method, path, body) {
-  const headers = { "Content-Type": "application/json" };
+async function api(method, path, body, raw) {
+  const headers = raw ? {} : { "Content-Type": "application/json" };
   if (token) headers.Authorization = "Bearer " + token;
-  const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const res = await fetch(path, { method, headers, body: raw ? body : body ? JSON.stringify(body) : undefined });
   if (res.status === 401) { $("auth").classList.add("open"); throw new Error("unauthorized"); }
   return res;
 }
-const getJSON = async (path) => (await api("GET", path)).json();
+const getJSON = async (p) => (await api("GET", p)).json();
 
-// --- minimal, safe Markdown ---
-function esc(s) { return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
+// ---------- markdown with code highlighting ----------
+function esc(s) { return s.replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" })[c]); }
 function inline(s) {
   return esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/(^|\W)\*([^*\s][^*]*)\*/g, "$1<em>$2</em>")
-    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    .replace(/(^|\W)\*([^*\s][^*]*)\*/g, "$1<em>$2</em>").replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
 }
+const KW = /\b(function|return|const|let|var|if|else|for|while|class|def|import|from|export|async|await|try|catch|new|struct|fn|pub|use|int|void|auto|include|public|private|static|true|false|null|None|self|this)\b/g;
+function highlight(code) {
+  // strings and comments first (as placeholders) so keywords inside them are left alone
+  const saved = [];
+  const keep = (cls) => (m) => { saved.push(`<span class="${cls}">${m}</span>`); return `\u0000${saved.length - 1}\u0000`; };
+  let s = esc(code).replace(/(\/\/[^\n]*|#[^\n{]*$|\/\*[\s\S]*?\*\/)/gm, keep("tok-c")).replace(/(&quot;.*?&quot;|'[^'\n]*')/g, keep("tok-s"));
+  s = s.replace(KW, '<span class="tok-k">$1</span>').replace(/\b(\d+(\.\d+)?)\b/g, '<span class="tok-n">$1</span>');
+  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => saved[+i]);
+}
+function codeBlock(lang, code) {
+  return `<div class="codeblock"><span class="lang">${esc(lang)}</span><button onclick="copyCode(this)">copy</button><pre><code>${highlight(code)}</code></pre></div>`;
+}
+window.copyCode = (b) => { navigator.clipboard?.writeText(b.parentElement.querySelector("code").innerText); b.textContent = "copied"; setTimeout(() => b.textContent = "copy", 1200); };
 function markdown(src) {
-  const out = []; let para = [], list = null, code = null;
-  const flush = () => { if (para.length) out.push("<p>" + para.map(inline).join("<br>") + "</p>"); para = [];
-                        if (list) { out.push("<ul>" + list.map((l) => "<li>" + inline(l) + "</li>").join("") + "</ul>"); list = null; } };
-  for (const line of src.split("\n")) {
-    if (line.trim().startsWith("```")) {
-      if (code === null) { flush(); code = []; } else { out.push("<pre><code>" + esc(code.join("\n")) + "</code></pre>"); code = null; }
-      continue;
+  const out = []; let para = [], list = null, code = null, lang = "", table = [];
+  const flush = () => {
+    if (para.length) out.push("<p>" + para.map(inline).join("<br>") + "</p>"); para = [];
+    if (list) { out.push("<ul>" + list.map((l) => "<li>" + inline(l) + "</li>").join("") + "</ul>"); list = null; }
+    if (table.length) {
+      const rows = table.filter((r) => !/^\s*\|?\s*:?-{2,}/.test(r)).map((r) => r.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim()));
+      out.push("<table>" + rows.map((r, i) => "<tr>" + r.map((c) => i ? `<td>${inline(c)}</td>` : `<th>${inline(c)}</th>`).join("") + "</tr>").join("") + "</table>");
+      table = [];
     }
+  };
+  for (const line of src.split("\n")) {
+    const fence = line.trim().match(/^```(\S*)/);
+    if (fence) { if (code === null) { flush(); code = []; lang = fence[1]; } else { out.push(codeBlock(lang, code.join("\n"))); code = null; } continue; }
     if (code !== null) { code.push(line); continue; }
+    if (line.trim().startsWith("|")) { if (para.length || list) flush(); table.push(line); continue; }
+    if (table.length) flush();
     const h = line.match(/^(#{1,6})\s+(.*)/);
-    if (h) { flush(); out.push(`<h${Math.min(h[1].length + 2, 6)}>${inline(h[2])}</h${Math.min(h[1].length + 2, 6)}>`); continue; }
+    if (h) { flush(); const n = Math.min(h[1].length + 2, 6); out.push(`<h${n}>${inline(h[2])}</h${n}>`); continue; }
     const li = line.match(/^\s*[-*+]\s+(.*)/) || line.match(/^\s*\d+\.\s+(.*)/);
     if (li) { if (para.length) { const l = list; list = null; flush(); list = l; } (list = list || []).push(li[1]); continue; }
     if (!line.trim()) { flush(); continue; }
     if (list) flush();
     para.push(line);
   }
-  if (code !== null) out.push("<pre><code>" + esc(code.join("\n")) + "</code></pre>");
+  if (code !== null) out.push(codeBlock(lang, code.join("\n")));
   flush();
   return out.join("");
 }
 
-// --- transcript ---
-function add(cls, html) {
-  const el = document.createElement("div"); el.className = "msg " + cls; el.innerHTML = html;
-  $("log").appendChild(el); scroll(); return el;
-}
+// ---------- transcript ----------
 function scroll() { const l = $("log"); if (l.scrollHeight - l.scrollTop - l.clientHeight < 200) l.scrollTop = l.scrollHeight; }
-function toolCard(title, output, failed) {
+function add(cls, html) { const el = document.createElement("div"); el.className = "msg " + cls; el.innerHTML = html; $("log").appendChild(el); scroll(); return el; }
+function userMsg(text, turn) {
+  const el = add("user", esc(text));
+  if (turn !== undefined) {
+    const t = document.createElement("div"); t.className = "tools";
+    t.innerHTML = `<button title="Go back to before this message (files restored)">Revert</button><button title="Copy the conversation up to here into a new session">Fork</button>`;
+    t.children[0].onclick = () => revert(turn); t.children[1].onclick = () => fork(turn);
+    el.appendChild(t);
+  }
+}
+function diffHtml(d) {
+  return '<div class="diff">' + d.split("\n").filter((l) => l && !l.startsWith("---") && !l.startsWith("+++"))
+    .map((l) => `<div class="${l[0] === "+" ? "a" : l[0] === "-" ? "d" : l.startsWith("@@") ? "h" : ""}">${esc(l)}</div>`).join("") + "</div>";
+}
+function toolCard(title, output, failed, diff) {
   const d = document.createElement("details"); d.className = "tool" + (failed ? " failed" : "");
-  d.innerHTML = `<summary>${esc(title)}</summary><pre>${esc(output || "")}</pre>`;
+  if (diff) d.open = true;
+  d.innerHTML = `<summary>${esc(title)}</summary>` + (diff ? diffHtml(diff) : `<pre>${esc(output || "")}</pre>`);
   $("log").appendChild(d); scroll();
 }
-function renderHistory(messages) {
-  $("log").innerHTML = "";
-  for (const m of messages) for (const p of m.parts) {
-    if (p.type === "text") m.role === "user" ? add("user", esc(p.text)) : add("assistant", markdown(p.text));
-    else if (p.type === "tool_result") toolCard(p.title || p.name, p.output, p.is_error);
-  }
+function renderTodos(input) {
+  const todos = input?.todos || [];
+  $("todos").classList.toggle("on", todos.length > 0);
+  $("todos").innerHTML = "<b>Plan</b>" + todos.map((t) => `<div class="${t.status === "in_progress" ? "doing" : t.status === "completed" ? "done" : ""}">${
+    t.status === "completed" ? "☑" : t.status === "in_progress" ? "▸" : "☐"} ${esc(t.content)}</div>`).join("");
+}
+async function renderHistory(messages) {
+  $("log").innerHTML = ""; renderTodos(null);
+  const turns = current ? await getJSON(`/session/${current.id}/turns`).catch(() => []) : [];
+  let turnIdx = 0;
+  const starts = new Set(); let count = 0;
+  messages.forEach((m, i) => { if (m.role === "user" && m.parts.some((p) => p.type === "text")) starts.add(i); });
+  messages.forEach((m, i) => {
+    for (const p of m.parts) {
+      if (p.type === "text") {
+        if (m.role === "user") {
+          const t = turns[turnIdx]; const isTurn = t && t.text === p.text;
+          userMsg(p.text, isTurn ? t.turn : undefined); if (isTurn) turnIdx++;
+        } else add("assistant", markdown(p.text));
+      } else if (p.type === "tool_call" && p.name === "todowrite") renderTodos(p.input);
+      else if (p.type === "tool_result") toolCard(p.title || p.name, p.output, p.is_error, p.diff);
+    }
+  });
   $("log").scrollTop = $("log").scrollHeight;
 }
 
-// --- sessions ---
+// ---------- sessions ----------
 async function loadSessions() {
-  const list = await getJSON("/session");
+  allSessions = await getJSON("/session");
+  const q = $("search").value.toLowerCase();
   const box = $("sessions"); box.innerHTML = "";
-  for (const s of list) {
+  for (const s of allSessions.filter((s) => !q || (s.title || s.id).toLowerCase().includes(q))) {
     const el = document.createElement("div");
     el.className = "sess" + (current && s.id === current.id ? " active" : "");
-    el.textContent = s.title || s.id; el.title = s.id;
+    el.innerHTML = `<span title="${esc(s.title || s.id)}">${esc(s.title || "New session")}</span><div class="acts"><button title="Rename">✎</button><button title="Delete">🗑</button></div>`;
     el.onclick = () => { openSession(s); $("side").classList.remove("open"); };
+    el.querySelectorAll(".acts button")[0].onclick = async (e) => { e.stopPropagation(); const t = prompt("Rename session", s.title || ""); if (t !== null) { await api("POST", `/session/${s.id}/title`, { title: t }); loadSessions(); if (current?.id === s.id) $("title").textContent = t; } };
+    el.querySelectorAll(".acts button")[1].onclick = async (e) => { e.stopPropagation(); if (confirm("Delete this session?")) { await api("DELETE", `/session/${s.id}`); if (current?.id === s.id) { current = null; $("log").innerHTML = ""; } loadSessions(); } };
     box.appendChild(el);
   }
-  return list;
 }
 function openSession(s) { return (opening = doOpen(s)); }
 async function doOpen(s) {
   current = s; store.set("shaman.session", s.id);
-  $("title").textContent = s.title || "new session";
-  $("agent").value = s.agent;
+  $("title").textContent = s.title || "New session"; $("agent").value = s.agent; $("goal").value = s.goal || "";
   usage(s);
-  renderHistory(await getJSON(`/session/${s.id}/message`));
+  await renderHistory(await getJSON(`/session/${s.id}/message`));
   loadSessions();
 }
-async function newSession() {
-  const res = await api("POST", "/session", { agent: $("agent").value || "build" });
-  await openSession(await res.json());
+async function newSession() { await openSession(await (await api("POST", "/session", { agent: $("agent").value || "build" })).json()); }
+async function refresh() { const s = await getJSON(`/session/${current.id}`); current = s; $("title").textContent = s.title || "New session"; usage(s); loadSessions(); }
+function usage(s) {
+  const inTok = s?.usage?.input ?? s?.input_tokens ?? 0, outTok = s?.usage?.output ?? s?.output_tokens ?? 0;
+  $("cost").textContent = s ? `${inTok} in · ${outTok} out · $${(s.cost || 0).toFixed(4)}` : "";
+  const m = models.find((x) => x.id === ($("model").value || s?.model)) || models[0];
+  const ctx = m?.context || 128000;
+  $("ctx").firstChild.style.width = Math.min(100, (s?.last_input || 0) / ctx * 100) + "%";
 }
-function usage(s) { $("usage").textContent = s ? `${s.usage?.input ?? s.input_tokens ?? 0} in · ${s.usage?.output ?? s.output_tokens ?? 0} out · $${(s.cost || 0).toFixed(4)}` : ""; }
+async function revert(turn) {
+  if (busy || !confirm("Go back to before this message? Files changed since then are restored.")) return;
+  const r = await (await api("POST", `/session/${current.id}/revert`, { turn })).json();
+  if (r.error) return add("error", esc(r.error));
+  await openSession(current); $("input").value = r.text || ""; $("input").focus();
+  add("notice", "Reverted. Edit the message and send it again.");
+}
+async function fork(turn) {
+  const r = await (await api("POST", `/session/${current.id}/fork`, turn === undefined ? {} : { turn })).json();
+  if (r.error) return add("error", esc(r.error));
+  await openSession(r);
+}
 
-// --- sending ---
-function setBusy(b) {
-  busy = b; $("send").hidden = b; $("stop").hidden = !b;
-  $("status").innerHTML = b ? '<span class="spin"></span> working…' : "";
+// ---------- attachments ----------
+async function upload(file) {
+  const res = await api("POST", `/upload?name=${encodeURIComponent(file.name || "pasted.png")}`, file, true);
+  const r = await res.json();
+  if (r.path) { attachments.push(r); renderAttachments(); }
 }
-async function send() {
-  const text = $("input").value.trim();
+function renderAttachments() {
+  $("attachments").innerHTML = attachments.map((a, i) => `<span class="chip">${esc(a.name)}<button data-i="${i}">✕</button></span>`).join("");
+  $("attachments").querySelectorAll("button").forEach((b) => b.onclick = () => { attachments.splice(+b.dataset.i, 1); renderAttachments(); });
+}
+$("attach").onclick = () => $("file").click();
+$("file").onchange = () => { for (const f of $("file").files) upload(f); $("file").value = ""; };
+$("input").addEventListener("paste", (e) => { for (const it of e.clipboardData?.items || []) if (it.kind === "file") { e.preventDefault(); upload(it.getAsFile()); } });
+["dragover", "dragenter"].forEach((ev) => $("composer").addEventListener(ev, (e) => { e.preventDefault(); $("composer").classList.add("drag"); }));
+["dragleave", "drop"].forEach((ev) => $("composer").addEventListener(ev, (e) => { e.preventDefault(); $("composer").classList.remove("drag"); }));
+$("composer").addEventListener("drop", (e) => { for (const f of e.dataTransfer.files) upload(f); });
+
+// ---------- slash commands ----------
+let menuItems = [], menuSel = 0;
+function updateMenu() {
+  const v = $("input").value;
+  if (!v.startsWith("/") || v.includes(" ") && !v.startsWith("/model ") && !v.startsWith("/agent ")) { $("menu-cmd").style.display = "none"; menuItems = []; return; }
+  const q = v.slice(1).toLowerCase();
+  if (v.startsWith("/model ")) menuItems = models.filter((m) => m.id.includes(v.slice(7))).slice(0, 30).map((m) => ["model " + m.id, m.free ? "free" : m.name]);
+  else if (v.startsWith("/agent ")) menuItems = [...$("agent").options].map((o) => ["agent " + o.value, ""]).filter((a) => a[0].includes(v.slice(1)));
+  else menuItems = [...builtins, ...commands.map((c) => [c.name, c.description])].filter(([n]) => n.startsWith(q));
+  menuSel = 0;
+  $("menu-cmd").innerHTML = menuItems.map(([n, d], i) => `<div class="${i === menuSel ? "sel" : ""}" data-i="${i}">/${esc(n)} <span>${esc(d || "")}</span></div>`).join("");
+  $("menu-cmd").style.display = menuItems.length ? "block" : "none";
+  $("menu-cmd").querySelectorAll("div").forEach((d) => d.onclick = () => pick(+d.dataset.i));
+}
+function pick(i) { $("input").value = "/" + menuItems[i][0] + " "; $("menu-cmd").style.display = "none"; menuItems = []; $("input").focus(); }
+async function runSlash(text) {
+  const [name, ...rest] = text.slice(1).split(" "); const arg = rest.join(" ").trim();
+  if (name === "new") return newSession();
+  if (name === "undo") return $("undo").onclick();
+  if (name === "compact") return $("compact").onclick();
+  if (name === "export") return $("export").onclick();
+  if (name === "share") return $("share").onclick();
+  if (name === "fork") return fork(arg ? +arg - 1 : undefined);
+  if (name === "revert") { const turns = await getJSON(`/session/${current.id}/turns`); if (turns.length) return revert(arg ? +arg - 1 : turns[turns.length - 1].turn); return; }
+  if (name === "model") { $("model").value = arg; return add("notice", "model: " + arg); }
+  if (name === "agent") { $("agent").value = arg; return add("notice", "agent: " + arg); }
+  if (name === "goal") { $("goal").value = arg; return send("Work towards the goal: " + arg); }
+  if (commands.some((c) => c.name === name)) return send(text, { command: name, arguments: arg });
+  add("error", "unknown command /" + esc(name));
+}
+
+// ---------- sending ----------
+function setBusy(b) { busy = b; $("send").hidden = b; $("stop").hidden = !b; $("status").innerHTML = b ? '<span class="spin"></span> working…' : ""; }
+async function send(textArg, extra) {
+  const text = (textArg ?? $("input").value).trim();
   if (!text || busy) return;
+  if (!textArg && text.startsWith("/")) { $("input").value = ""; updateMenu(); return runSlash(text); }
   await opening;
   if (!current) await newSession();
-  $("input").value = "";
-  add("user", esc(text));
+  if (!textArg) $("input").value = "";
+  if (!current.title) { current.title = text.split("\n").find((l) => l.trim())?.trim().replace(/\s+/g, " ").slice(0, 60) || ""; $("title").textContent = current.title; }
+  userMsg(text + (attachments.length ? "\n📎 " + attachments.map((a) => a.name).join(", ") : ""));
   setBusy(true);
+  setTimeout(loadSessions, 300);  // the server has named the session by now
   let assistant = null, reasoning = null, buffer = "", thought = "";
-  const body = { text, agent: $("agent").value };
+  const body = { text, agent: $("agent").value, ...(extra || {}) };
   if ($("model").value) body.model = $("model").value;
+  if ($("goal").value.trim()) body.goal = $("goal").value.trim();
+  if (attachments.length) body.files = attachments.map((a) => a.path);
+  attachments = []; renderAttachments();
   try {
     const res = await api("POST", `/session/${current.id}/message`, body);
     if (!res.ok) { add("error", esc((await res.json()).error || res.statusText)); return; }
-    const reader = res.body.getReader(), dec = new TextDecoder();
-    let pending = "";
+    const reader = res.body.getReader(), dec = new TextDecoder(); let pending = "";
     for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      pending += dec.decode(value, { stream: true });
-      let i;
+      const { value, done } = await reader.read(); if (done) break;
+      pending += dec.decode(value, { stream: true }); let i;
       while ((i = pending.indexOf("\n\n")) >= 0) {
         const raw = pending.slice(0, i); pending = pending.slice(i + 2);
         let event = "message", data = "";
-        for (const l of raw.split("\n")) {
-          if (l.startsWith("event:")) event = l.slice(6).trim();
-          else if (l.startsWith("data:")) data += (data ? "\n" : "") + l.slice(5).replace(/^ /, "");
-        }
+        for (const l of raw.split("\n")) { if (l.startsWith("event:")) event = l.slice(6).trim(); else if (l.startsWith("data:")) data += (data ? "\n" : "") + l.slice(5).replace(/^ /, ""); }
         if (!data) continue;
         const d = JSON.parse(data);
         if (event === "text") { buffer += d.text; (assistant ||= add("assistant", "")).innerHTML = markdown(buffer); reasoning = null; scroll(); }
         else if (event === "reasoning") { thought += d.text; (reasoning ||= add("reasoning", "")).textContent = thought; }
-        else if (event === "tool_start") { assistant = null; buffer = ""; }
-        else if (event === "tool_end") toolCard(d.title || d.name, d.output, d.is_error);
+        else if (event === "tool_start") { assistant = null; buffer = ""; if (d.name === "todowrite") renderTodos(d.input); }
+        else if (event === "tool_end") toolCard(d.title || d.name, d.output, d.is_error, d.diff);
+        else if (event === "step") { current.last_input = d.input_tokens; usage(current); }
         else if (event === "notice") add("notice", esc(d.text));
         else if (event === "permission") askPermission(d);
+        else if (event === "question") askQuestion(d);
         else if (event === "error") add("error", esc(d.message));
-        else if (event === "done") usage(d);
       }
     }
   } catch (e) { add("error", esc(String(e.message || e))); }
-  finally { setBusy(false); const s = await getJSON(`/session/${current.id}`); current = s; $("title").textContent = s.title || "session"; usage(s); loadSessions(); }
+  finally { setBusy(false); const keep = current.last_input; await refresh(); current.last_input = keep; usage(current); }
 }
-function askPermission(d) {
-  pendingPermission = d.id;
-  $("perm-title").textContent = "Allow " + d.permission + "?";
-  $("perm-subject").textContent = d.title || d.subject;
-  $("perm").classList.add("open");
+function askPermission(d) { pendingPermission = d.id; $("perm-title").textContent = "Allow " + d.permission + "?"; $("perm-subject").textContent = d.title || d.subject; $("perm").classList.add("open"); }
+document.querySelectorAll("#perm [data-reply]").forEach((b) => b.onclick = async () => { $("perm").classList.remove("open"); await api("POST", `/permission/${pendingPermission}`, { reply: b.dataset.reply }); });
+function askQuestion(d) {
+  pendingQuestion = d.id; $("ask-title").textContent = d.question; $("ask-text").value = ""; $("ask-options").innerHTML = "";
+  for (const o of d.options || []) { const b = document.createElement("button"); b.textContent = o; b.onclick = () => answer(o); $("ask-options").appendChild(b); }
+  $("ask").classList.add("open"); $("ask-text").focus();
 }
-document.querySelectorAll("#perm [data-reply]").forEach((b) => b.onclick = async () => {
-  $("perm").classList.remove("open");
-  await api("POST", `/permission/${pendingPermission}`, { reply: b.dataset.reply });
-});
+async function answer(a) { $("ask").classList.remove("open"); await api("POST", `/question/${pendingQuestion}`, { answer: a }); }
+$("ask-send").onclick = () => answer($("ask-text").value.trim());
+$("ask-skip").onclick = () => answer("");
+$("ask-text").addEventListener("keydown", (e) => { if (e.key === "Enter") answer($("ask-text").value.trim()); });
 
-// --- wiring ---
-$("send").onclick = send;
+// ---------- wiring ----------
+$("send").onclick = () => send();
 $("stop").onclick = () => current && api("POST", `/session/${current.id}/abort`);
 $("new").onclick = newSession;
 $("menu").onclick = () => $("side").classList.toggle("open");
-$("input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
+$("search").oninput = loadSessions;
+$("input").addEventListener("input", updateMenu);
+$("input").addEventListener("keydown", (e) => {
+  if (menuItems.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+    e.preventDefault(); menuSel = (menuSel + (e.key === "ArrowDown" ? 1 : menuItems.length - 1)) % menuItems.length;
+    $("menu-cmd").querySelectorAll("div").forEach((d, i) => d.classList.toggle("sel", i === menuSel)); return;
+  }
+  if (menuItems.length && (e.key === "Tab" || (e.key === "Enter" && !$("input").value.includes(" ")))) { e.preventDefault(); return pick(menuSel); }
+  if (e.key === "Escape") { $("menu-cmd").style.display = "none"; menuItems = []; }
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+});
 $("undo").onclick = async () => { if (!current) return; const r = await (await api("POST", `/session/${current.id}/undo`)).json(); add("notice", esc(r.changes || r.error || "done")); };
 $("compact").onclick = async () => { if (!current) return; await api("POST", `/session/${current.id}/compact`); openSession(current); };
 $("export").onclick = async () => {
@@ -288,25 +448,29 @@ $("export").onclick = async () => {
   const msgs = await getJSON(`/session/${current.id}/message`);
   let md = `# ${current.title || current.id}\n\n`;
   for (const m of msgs) for (const p of m.parts) if (p.type === "text") md += `## ${m.role === "user" ? "User" : "Assistant"}\n\n${p.text}\n\n`;
-  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([md], { type: "text/markdown" }));
-  a.download = `${current.id}.md`; a.click();
+  download(`${current.id}.md`, new Blob([md], { type: "text/markdown" }));
 };
+$("share").onclick = async () => { if (current) download(`${current.id}.html`, await (await api("GET", `/session/${current.id}/share`)).blob()); };
+function download(name, blob) { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click(); }
 $("theme").onclick = () => {
   const dark = matchMedia("(prefers-color-scheme: dark)").matches;
   const now = document.documentElement.dataset.theme || (dark ? "dark" : "light");
   document.documentElement.dataset.theme = now === "dark" ? "light" : "dark";
   store.set("shaman.theme", document.documentElement.dataset.theme);
 };
+$("model").onchange = () => current && usage(current);
 $("token-save").onclick = () => { token = $("token").value; store.set("shaman.token", token); $("auth").classList.remove("open"); init(); };
 if (store.get("shaman.theme")) document.documentElement.dataset.theme = store.get("shaman.theme");
 
 async function init() {
-  const [agents, models] = await Promise.all([getJSON("/agents"), getJSON("/models")]);
+  const [agents, ms, cmds, info] = await Promise.all([getJSON("/agents"), getJSON("/models"), getJSON("/commands"), getJSON("/info").catch(() => ({}))]);
+  models = ms; commands = cmds;
   $("agent").innerHTML = agents.filter((a) => a.mode !== "subagent").map((a) => `<option value="${esc(a.name)}">${esc(a.name)}</option>`).join("");
-  $("model").innerHTML = '<option value="">default model</option>' +
-    models.map((m) => `<option value="${esc(m.id)}">${esc(m.id)}${m.free ? " (free)" : ""}</option>`).join("");
-  const list = await loadSessions();
-  const last = list.find((s) => s.id === store.get("shaman.session")) || list[0];
+  $("model").innerHTML = `<option value="" title="${esc(info.default_model || "")}">${esc(info.default_model ? info.default_model.split("/").pop() + " (default)" : "default model")}</option>` +
+    ms.map((m) => `<option value="${esc(m.id)}">${esc(m.id)}${m.free ? " (free)" : ""}</option>`).join("");
+  if (info.project) document.title = "shaman · " + info.project.split(/[\\/]/).pop();
+  await loadSessions();
+  const last = allSessions.find((s) => s.id === store.get("shaman.session")) || allSessions[0];
   if (last) openSession(last);
   $("input").focus();
 }

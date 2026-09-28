@@ -23,7 +23,7 @@
 tui/         full-screen UI: raw terminal, markdown rendering, pickers, dialogs
 server/      HTTP API + embedded web UI (web/index.html)
 acp/         Agent Client Protocol for editors
-session/     the agent loop (runner), store, system prompt, snapshots, input, formatters, archive
+session/     the agent loop (runner), store, system prompt, snapshots, input, formatters, archive, secret redaction
 agent/       agent definitions: built-ins, config, markdown files; prompts
 command/     custom slash commands          skill/   SKILL.md discovery
 tool/        Tool interface, registry, built-in tools (tool/builtin/)
@@ -33,6 +33,8 @@ plugin/      out-of-process plugin host
 permission/  layered allow/ask/deny rules and the interactive gate
 provider/    Provider interface, OpenAI-chat and Anthropic protocols, catalog, registry
 auth/        saved API keys                 github/  Actions integration     update/  self-update
+extras/      notifications, git worktrees, cron scheduling
+diff/        Myers unified diffs for edit tools
 llm/         provider-neutral messages, requests and stream events
 http/        libcurl transport and SSE parser
 config/      layered JSONC config with {env:} / {file:} substitution
@@ -41,6 +43,7 @@ apps/        main.cpp (shaman), desktop.cpp (shaman-desktop)</code></pre>
 <h2 id="a-turn-end-to-end">A turn, end to end<a class="anchor" href="#a-turn-end-to-end">#</a></h2>
 <ol><li><code>cli</code> builds an <code>App</code> (config, providers, agents, tools, MCP, session store) and a <code>Runner</code>.</li><li><code>Runner::prompt</code> snapshots the worktree, appends the user message to the session, and builds a <code>ChatRequest</code>: the system prompt (<code>session/system_prompt</code>), the history and the agent&#x27;s enabled tools.</li><li>The resolved <code>Provider</code> streams <code>StreamEvent</code>s (text, reasoning, whole tool calls, usage, finish). Retryable failures back off, then walk the free-model fallback chain.</li><li>Each tool call goes through the doom-loop guard, then <code>Tool::run</code>. Tools ask the <code>permission::Gate</code> themselves, because the subject (command, path, URL) depends on their input.</li><li>Tool results are appended as a user message and the loop continues until the model stops calling tools, the agent&#x27;s <code>max_steps</code> is reached, or the user cancels. Near the context limit the history is compacted.</li></ol>
 <p>Every step emits <code>session::Events</code> (rendered by <code>cli/render</code>) plus debug logs and trace records.</p>
+<p>Each top-level turn records where its user message starts (<code>Info::turn_starts</code>) next to its worktree snapshot (<code>Info::snapshots</code>). <code>Runner::revert(n)</code> restores snapshot <code>n</code> and truncates the log there; <code>Runner::fork(n)</code> copies the log up to it into a new session. Edit tools attach a unified diff to their result; it is stored and shown in every UI but never sent to the model.</p>
 <h2 id="extension-points">Extension points<a class="anchor" href="#extension-points">#</a></h2>
 <table><thead><tr><th>To add</th><th>Implement</th><th>Register in</th></tr></thead><tbody><tr><td>A tool</td><td><code>tool::Tool</code></td><td><code>tool::register_builtins</code> (<code>tool/builtin/system.cpp</code>)</td></tr><tr><td>A wire protocol (Responses, Gemini native, Bedrock)</td><td><code>provider::Provider</code>, add an <code>Api</code> value</td><td><code>provider::make</code> (<code>provider/factory.cpp</code>)</td></tr><tr><td>A key-based provider</td><td>a <code>ProviderInfo</code> entry</td><td><code>provider::builtin()</code>; keys resolve via <code>ProviderInfo::env</code></td></tr><tr><td>A front end</td><td><code>session::Events</code> + an <code>Asker</code></td><td>construct a <code>Runner</code> from <code>App::services</code> (see tui/, server/, acp/)</td></tr><tr><td>An agent</td><td>markdown file or config entry</td><td><code>agent::Registry</code> loads them automatically</td></tr><tr><td>A platform</td><td><code>core/process_&lt;os&gt;.cpp</code>, <code>core/paths.cpp</code></td><td>CMake picks by platform</td></tr><tr><td>Behaviour without recompiling</td><td>a plugin (<a href="plugins.html">PLUGINS.md</a>) or <code>plugin::Hooks</code> in C++</td><td>config <code>plugin</code></td></tr></tbody></table>
 <h2 id="conventions">Conventions<a class="anchor" href="#conventions">#</a></h2>

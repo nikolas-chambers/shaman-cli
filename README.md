@@ -1,4 +1,6 @@
-# shaman-cli
+<p align="center"><a href="https://nikolas-chambers.github.io/shaman-cli/"><img src="docs/assets/banner.png" alt="shaman-cli"></a></p>
+
+<p align="center"><b><a href="https://nikolas-chambers.github.io/shaman-cli/">nikolas-chambers.github.io/shaman-cli</a></b></p>
 
 **Homepage: <https://nikolas-chambers.github.io/shaman-cli/>**  
 **Docs: <https://nikolas-chambers.github.io/shaman-cli/docs.html>**
@@ -47,18 +49,38 @@ Add a key for anything else: `shaman auth login anthropic`, or set `ANTHROPIC_AP
 | `shaman mcp list\|auth\|serve` | MCP servers (stdio, HTTP, OAuth); `serve` exposes shaman's tools over MCP |
 | `shaman github install` | `/shaman` comments on issues and PRs via GitHub Actions |
 | `shaman export\|import\|share\|stats` | Sessions as Markdown, JSON or a shareable HTML page |
+| `shaman worktree <name>` | Work in an isolated git worktree on its own branch |
+| `shaman schedule add "<cron>" <prompt>` | Recurring runs via cron (daily notes, dependency checks, ...) |
+| `shaman doctor` | Check keys, network, tools and language servers |
+| `shaman completion bash\|zsh\|fish` | Shell completions |
 | `shaman upgrade` | Self-update from GitHub releases |
 
 Agents: `build` (default), `plan` (read-only), and subagents `explore` and `general`. Add your own in
 `.shaman/agents/*.md` and commands in `.shaman/commands/*.md`.
 
-Skills: 23 built in, loaded only when relevant: code-review, debugging, testing, git-workflow, refactoring,
-security-review, performance, documentation, api-design, dependency-upgrade, migrations, frontend-ui,
-webapp-testing, data-analysis, research, ci-cd, docker, mcp-builder, skill-creator, and pdf / docx / xlsx / pptx
-with helper scripts. Add your own in `.shaman/skills/<name>/SKILL.md` (`shaman debug skills` lists them).
+Skills: 35 built in, loaded only when relevant — engineering (code-review, debugging, testing, refactoring,
+performance, security-review, git-workflow, api-design, migrations, dependency-upgrade, codebase-onboarding),
+infrastructure (ci-cd, docker, kubernetes, terraform, observability, incident-response, release-management),
+web (frontend-ui, accessibility, webapp-testing, web-scraping), data and AI (sql, data-analysis, llm-apps,
+mcp-builder), writing (documentation, technical-writing, research), shell-scripting, skill-creator, and documents
+(pdf, docx, xlsx, pptx) with tested helper scripts. Add your own in `.shaman/skills/<name>/SKILL.md`.
 
-Tools: `read write edit apply_patch list glob grep bash webfetch websearch lsp skill task todowrite todoread`, plus
-MCP and plugin tools. After every edit shaman runs the project's formatter and reports language-server errors.
+In a session: `/goal <objective>` keeps working until the goal is verified complete; `/revert` goes back to an
+earlier message (files restored, the message put back in the input to edit); `/fork` copies the conversation into a
+new session (also `shaman fork [id] [--turn N]`); `/undo`, `/compact`, `/models`, `/agents`, `/sessions`,
+`/export`, `/share` and your custom commands; `Ctrl-P` lists everything. File edits show a coloured diff.
+
+Web and desktop UI (`shaman web`, `shaman-desktop`): streaming chat with inline diffs, revert and fork on any
+message, drag-drop or paste files and images, `/` command menu with your custom commands, the agent's plan, session
+search, rename and delete, code blocks with copy, a goal field, context and cost meters, Markdown export, a shareable
+HTML page, and light and dark themes.
+
+Tools (25): `read` (also images and notebooks), `write`, `edit`, `multiedit`, `apply_patch`, `notebook_edit`, `list`,
+`glob`, `grep`, `batch` (parallel reads), `bash` (foreground or background, with `bash_output`, `bash_input`,
+`bash_kill`), `http`, `webfetch`, `websearch` (DuckDuckGo, or Tavily/Exa/Brave with a key), `lsp`, `task` and
+`task_output` (subagents, also in the background), `todowrite`, `todoread`, `question`, `memory` (project notes kept
+across sessions), `skill`, plus MCP and plugin tools. After every edit shaman runs the project's formatter and
+reports language-server errors.
 
 ## Config
 
@@ -89,14 +111,17 @@ clients for the HTTP API.
 
 ## Improvements over opencode
 
-Native binary with millisecond startup · safer defaults (edits and shell ask, read-before-edit, a loop guard) ·
-automatic free-model fallback · crash-safe append-only sessions · undo that never touches your git state ·
-formatters only where the project configured them · plugins in any language · categorised debug logs and JSONL
-traces · an offline test suite driving the real binary against mock model, MCP and LSP servers.
+Native binary with millisecond startup · safer defaults (edits and shell ask, read-before-edit, a loop guard,
+secrets redacted from tool output) · automatic free-model fallback · context pruning before compaction ·
+background subagents and background shell jobs · desktop notifications · `/goal` · worktrees · scheduling ·
+crash-safe append-only sessions · undo that never touches your git state · formatters only where the project
+configured them · non-interactive shell so commands never hang on a prompt · plugins in any language · `doctor` ·
+categorised debug logs and JSONL traces · an offline test suite driving the real binary against mock model, MCP and
+LSP servers, plus a live suite for real models. Most of this replaces popular opencode plugins with built-ins.
 
 ## Status
 
-Tested on Linux: 27 unit tests, 62 offline end-to-end checks, and a live suite (`tests/e2e/live.sh`) passing on Gemini 3.1 and 3.5 Flash-Lite, plus the web UI in Chromium, the TUI in xterm and the desktop app under X11. macOS and Windows builds are set up in CI but not yet
+Tested on Linux: 34 unit tests, 91 offline end-to-end checks, and a live suite (`tests/e2e/live.sh`, 20 checks including permission-bypass attempts) passing on Gemini Flash-Lite models, plus the web UI in Chromium, the TUI in xterm and the desktop app under X11. macOS and Windows builds are set up in CI but not yet
 verified; the Windows desktop app and MCP stdio servers on Windows are untested.
 
 ## Development
@@ -105,14 +130,13 @@ verified; the Windows desktop app and MCP stdio servers on Windows are untested.
 ctest --test-dir build --output-on-failure      # unit + end-to-end (mock servers in tests/mock/)
 ```
 
-Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). License: MIT.
+Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The website lives in `docs/` (GitHub Pages: Settings → Pages →
+deploy from branch `main`, folder `/docs`). License: MIT.
 
 ---
 
 Inspired by [opencode](https://github.com/anomalyco/opencode) (MIT). Free models by [OpenCode Zen](https://opencode.ai/zen).
 Not affiliated with opencode.
-
----
 
 ### 💼 For hire
 

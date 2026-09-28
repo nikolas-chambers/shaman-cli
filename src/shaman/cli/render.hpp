@@ -35,6 +35,8 @@ class JsonEvents final : public session::Events {
 
 // Ask on the controlling terminal; with no terminal, reject.
 permission::Reply ask_terminal(const permission::Request& req);
+// Question tool on the controlling terminal; error when there is none.
+Result<std::string> question_terminal(const tool::Question& q);
 
 bool stdout_is_tty();
 bool stdin_is_tty();

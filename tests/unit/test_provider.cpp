@@ -89,3 +89,19 @@ TEST(openai_thought_signature_roundtrip) {
   CHECK_EQ(body["messages"][0]["tool_calls"][0]["extra_content"]["google"]["thought_signature"].get<std::string>(), std::string("SIG"));
   CHECK_EQ(llm::message_from_json(llm::to_json(req.messages[0])).tool_calls()[0].meta, call.meta);  // persisted
 }
+
+TEST(openai_parallel_calls_same_index) {
+  provider::OpenAIChatDecoder d;
+  std::vector<llm::ToolCallPart> calls;
+  auto sink = [&](const llm::StreamEvent& ev) {
+    if (auto* c = std::get_if<llm::ToolCallEvent>(&ev)) calls.push_back(c->call);
+  };
+  // Gemini-style: each parallel call arrives whole, all with index 0
+  d.feed(Json::parse(R"({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"a","function":{"name":"bash","arguments":"{\"command\":\"ls\"}"}}]}}]})"), sink);
+  d.feed(Json::parse(R"({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"b","function":{"name":"batch","arguments":"{}"}}]}}]})"), sink);
+  d.feed(Json::parse(R"({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c","function":{"name":"memory","arguments":"{\"action\":\"view\"}"}}]}}]})"), sink);
+  d.finish(sink);
+  CHECK_EQ(calls.size(), size_t(3));
+  CHECK_EQ(calls[1].name, std::string("batch"));
+  CHECK_EQ(calls[2].input["action"].get<std::string>(), std::string("view"));
+}

@@ -60,7 +60,11 @@ else()
 endif()
 
 # --- executable --------------------------------------------------------------
-add_executable(shaman apps/main.cpp)
+set(SHAMAN_RESOURCES "")
+if(WIN32)
+  set(SHAMAN_RESOURCES apps/shaman.rc)  # app icon
+endif()
+add_executable(shaman apps/main.cpp ${SHAMAN_RESOURCES})
 target_link_libraries(shaman PRIVATE shaman_core)
 if(SHAMAN_STATIC AND NOT APPLE)
   target_link_options(shaman PRIVATE -static-libstdc++ -static-libgcc)
@@ -75,7 +79,7 @@ if(SHAMAN_BUILD_DESKTOP)
   set(WEBVIEW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
   set(WEBVIEW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
   FetchContent_MakeAvailable(webview)
-  add_executable(shaman-desktop WIN32 apps/desktop.cpp)
+  add_executable(shaman-desktop WIN32 apps/desktop.cpp ${SHAMAN_RESOURCES})
   target_link_libraries(shaman-desktop PRIVATE shaman_core webview::core)
   if(NOT MSVC)
     target_compile_options(shaman-desktop PRIVATE -Wno-deprecated-declarations)  # webview headers use std::aligned_storage
@@ -83,8 +87,10 @@ if(SHAMAN_BUILD_DESKTOP)
   install(TARGETS shaman-desktop RUNTIME DESTINATION bin)
 endif()
 
-# --- tests -------------------------------------------------------------------
+# Only used by the `site` target below, so it is found unconditionally.
 find_program(PYTHON3 python3)
+
+# --- tests -------------------------------------------------------------------
 if(SHAMAN_BUILD_TESTS)
   enable_testing()
   file(GLOB SHAMAN_TESTS CONFIGURE_DEPENDS tests/unit/*.cpp)

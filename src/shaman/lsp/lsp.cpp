@@ -177,7 +177,8 @@ Manager::Manager(const Config& config, fs::path root) : root_(std::move(root)), 
   auto cfg = config.raw.value("lsp", Json::object());
   disabled_ = cfg.value("disabled", false);
   timeout_ = milliseconds(cfg.value("timeout", 3000));
-  for (auto& [id, s] : cfg.value("servers", Json::object()).items()) {
+  auto servers = cfg.value("servers", Json::object());
+  for (auto& [id, s] : servers.items()) {
     std::erase_if(specs_, [&](const ServerSpec& x) { return x.id == id && s.value("disabled", false); });
     if (s.contains("command")) {
       std::erase_if(specs_, [&](const ServerSpec& x) { return x.id == id; });

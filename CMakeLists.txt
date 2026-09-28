@@ -8,6 +8,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(SHAMAN_BUILD_TESTS "Build unit tests" ON)
 option(SHAMAN_STATIC "Link statically where possible" OFF)
+option(SHAMAN_BUILD_DESKTOP "Build shaman-desktop (needs WebView2 / WKWebView / WebKitGTK)" OFF)
 
 # --- dependencies ------------------------------------------------------------
 # libcurl: HTTP + TLS. nlohmann_json: header-only JSON (fetched if not installed).
@@ -28,7 +29,16 @@ else()
   list(FILTER SHAMAN_SOURCES EXCLUDE REGEX "_win\\.cpp$")
 endif()
 
-add_library(shaman_core STATIC ${SHAMAN_SOURCES})
+# The web UI is a single HTML file compiled into the binary.
+set(SHAMAN_WEB_CPP ${CMAKE_BINARY_DIR}/generated/web_index.cpp)
+add_custom_command(
+  OUTPUT ${SHAMAN_WEB_CPP}
+  COMMAND ${CMAKE_COMMAND} -DIN=${CMAKE_SOURCE_DIR}/web/index.html -DOUT=${SHAMAN_WEB_CPP} -DNAME=web_index
+          -P ${CMAKE_SOURCE_DIR}/cmake/embed.cmake
+  DEPENDS ${CMAKE_SOURCE_DIR}/web/index.html ${CMAKE_SOURCE_DIR}/cmake/embed.cmake
+  COMMENT "Embedding web UI")
+
+add_library(shaman_core STATIC ${SHAMAN_SOURCES} ${SHAMAN_WEB_CPP})
 target_include_directories(shaman_core PUBLIC src)
 target_link_libraries(shaman_core PUBLIC CURL::libcurl OpenSSL::Crypto nlohmann_json::nlohmann_json)
 if(WIN32)
@@ -47,6 +57,22 @@ if(SHAMAN_STATIC AND NOT APPLE)
   target_link_options(shaman PRIVATE -static-libstdc++ -static-libgcc)
 endif()
 install(TARGETS shaman RUNTIME DESTINATION bin)
+
+# --- desktop app -------------------------------------------------------------
+if(SHAMAN_BUILD_DESKTOP)
+  include(FetchContent)
+  FetchContent_Declare(webview GIT_REPOSITORY https://github.com/webview/webview GIT_TAG cbbdee44afff22867de9fd88a9fc8350d9bdd399)
+  set(WEBVIEW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+  set(WEBVIEW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(WEBVIEW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(webview)
+  add_executable(shaman-desktop WIN32 apps/desktop.cpp)
+  target_link_libraries(shaman-desktop PRIVATE shaman_core webview::core)
+  if(NOT MSVC)
+    target_compile_options(shaman-desktop PRIVATE -Wno-deprecated-declarations)  # webview headers use std::aligned_storage
+  endif()
+  install(TARGETS shaman-desktop RUNTIME DESTINATION bin)
+endif()
 
 # --- tests -------------------------------------------------------------------
 if(SHAMAN_BUILD_TESTS)

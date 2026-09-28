@@ -48,11 +48,15 @@ std::string base64url(std::string_view data) {
   return s;
 }
 
-std::string random_token(size_t bytes = 32) {
+}  // namespace
+
+std::string random_token(size_t bytes) {
   std::string buf(bytes, '\0');
   RAND_bytes(reinterpret_cast<unsigned char*>(buf.data()), int(bytes));
   return base64url(buf);
 }
+
+namespace {
 
 std::string origin(const std::string& url) {
   auto scheme = url.find("://");

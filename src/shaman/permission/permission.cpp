@@ -19,7 +19,7 @@ Rules Rules::defaults() {
   return from_json({
       {"read", "allow"}, {"list", "allow"}, {"glob", "allow"}, {"grep", "allow"},
       {"todo", "allow"}, {"task", "allow"}, {"skill", "allow"}, {"lsp", "allow"}, {"websearch", "allow"},
-      {"edit", "ask"}, {"webfetch", "ask"}, {"external_directory", "ask"}, {"mcp", "ask"},
+      {"edit", "ask"}, {"webfetch", "ask"}, {"external_directory", "ask"}, {"mcp", "ask"}, {"plugin", "ask"},
       {"doom_loop", "ask"},
       {"bash", {
           {"*", "ask"},

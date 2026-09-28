@@ -9,6 +9,7 @@
 #include "shaman/core/id.hpp"
 #include "shaman/core/log.hpp"
 #include "shaman/core/paths.hpp"
+#include "shaman/session/format.hpp"
 #include "shaman/session/input.hpp"
 #include "shaman/session/snapshot.hpp"
 #include "shaman/session/system_prompt.hpp"
@@ -153,8 +154,14 @@ tool::Output Runner::run_tool(const ToolCallPart& call, const agent::Agent& agen
     QuietEvents quiet(events, sub->name);
     return prompt_as_subagent(*child, prompt, quiet);
   };
+  // After each write: format (if the project has a formatter set up), then report LSP errors.
+  ctx.diagnostics = [this](const std::filesystem::path& p) {
+    std::string out;
+    if (auto f = format_file(*s_.config, s_.root, p); !f.empty()) out += "\n(formatted with " + f + ")";
+    if (s_.lsp) out += s_.lsp->report(p);
+    return out;
+  };
   if (s_.lsp) {
-    ctx.diagnostics = [lsp = s_.lsp](const std::filesystem::path& p) { return lsp->report(p); };
     ctx.lsp = [lsp = s_.lsp](const std::string& op, const std::filesystem::path& p, int line, int col) {
       return lsp->query(op, p, line, col);
     };
@@ -251,7 +258,7 @@ Result<std::string> Runner::prompt(Info& session, const std::string& input_text,
       events.tool_start(call);
       auto out = run_tool(call, *agent, session, events);
       events.tool_end(call, out);
-      results.parts.push_back(ToolResultPart{call.id, call.name, out.text, out.is_error});
+      results.parts.push_back(ToolResultPart{call.id, call.name, out.text, out.is_error, out.title});
     }
     messages.push_back(results);
     s_.store->append(session.id, results);

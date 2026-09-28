@@ -1,5 +1,7 @@
 #include "shaman/tui/markdown.hpp"
 
+#include <cstdlib>
+
 #include "shaman/core/strings.hpp"
 
 namespace shaman::tui {
@@ -25,6 +27,45 @@ size_t display_width(std::string_view s) {
   }
   return w;
 }
+
+std::string clip(const std::string& s, size_t width) {
+  std::string out;
+  size_t w = 0;
+  for (size_t i = 0; i < s.size(); ++i) {
+    unsigned char c = s[i];
+    if (c == '\x1b') {
+      size_t j = i;
+      while (j < s.size() && !((s[j] >= 'A' && s[j] <= 'Z') || (s[j] >= 'a' && s[j] <= 'z'))) ++j;
+      out += s.substr(i, j - i + 1);
+      i = j;
+      continue;
+    }
+    if ((c & 0xC0) != 0x80) {
+      if (w == width) break;
+      ++w;
+    }
+    out += char(c);
+  }
+  return out;
+}
+
+bool unicode() {
+  static const bool yes = [] {
+    for (auto var : {"LC_ALL", "LC_CTYPE", "LANG"})
+      if (const char* v = std::getenv(var); v && *v) {
+        auto s = str::lower(v);
+        return s.find("utf-8") != std::string::npos || s.find("utf8") != std::string::npos;
+      }
+#ifdef _WIN32
+    return true;  // console is switched to UTF-8 at startup
+#else
+    return false;
+#endif
+  }();
+  return yes;
+}
+
+std::string glyph(const char* utf8, const char* ascii) { return unicode() ? utf8 : ascii; }
 
 std::vector<std::string> wrap(const std::string& styled, size_t width, const std::string& indent) {
   std::vector<std::string> out;
@@ -117,11 +158,11 @@ std::vector<std::string> render_markdown(const std::string& text, size_t width) 
     auto t = str::trim(line);
     if (t.starts_with("```")) {
       fence = !fence;
-      out.push_back(std::string(style::dim) + (fence ? "┌ " + t.substr(3) : "└") + style::reset);
+      out.push_back(std::string(style::dim) + (fence ? glyph("┌ ", "+ ") + t.substr(3) : glyph("└", "+")) + style::reset);
       continue;
     }
     if (fence) {
-      for (auto& l : wrap(std::string(style::code) + line, width, "│ ")) out.push_back(std::string(style::dim) + "│ " + style::reset + l);
+      for (auto& l : wrap(std::string(style::code) + line, width - 2)) out.push_back(std::string(style::dim) + glyph("│ ", "| ") + style::reset + l);
       continue;
     }
     if (t.starts_with("#")) {
@@ -130,14 +171,14 @@ std::vector<std::string> render_markdown(const std::string& text, size_t width) 
       continue;
     }
     if (t.starts_with("> ")) {
-      for (auto& l : wrap(std::string(style::dim) + inline_md(t.substr(2)), width - 2)) out.push_back(std::string(style::dim) + "▎ " + l);
+      for (auto& l : wrap(std::string(style::dim) + inline_md(t.substr(2)), width - 2)) out.push_back(std::string(style::dim) + glyph("▎ ", "> ") + l);
       continue;
     }
     size_t indent = line.find_first_not_of(' ');
     if (indent == std::string::npos) indent = 0;
     if (t.starts_with("- ") || t.starts_with("* ") || t.starts_with("+ ")) {
       auto pad = std::string(indent, ' ');
-      auto ls = wrap(pad + "• " + inline_md(t.substr(2)), width, pad + "  ");
+      auto ls = wrap(pad + glyph("• ", "* ") + inline_md(t.substr(2)), width, pad + "  ");
       out.insert(out.end(), ls.begin(), ls.end());
       continue;
     }

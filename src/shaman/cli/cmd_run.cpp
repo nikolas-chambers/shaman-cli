@@ -57,7 +57,15 @@ int cmd_run(App& app, const Options& o, std::string message) {
   auto r = runner.prompt(*s, message, ev, po);
   g_busy = false;
   term.finish();
-  if (!r) return std::cerr << "error: " << r.error().message << "\n", 1;
+  if (!r) {
+    // Don't leave an empty session behind when the very first turn failed early (bad model, no key).
+    auto ms = app.store->messages(s->id);
+    if (!o.session && !o.cont && ms && ms->empty()) {
+      std::error_code ec;
+      std::filesystem::remove_all(app.store->dir() / s->id, ec);
+    }
+    return std::cerr << "error: " << r.error().message << "\n", 1;
+  }
   return 0;
 }
 

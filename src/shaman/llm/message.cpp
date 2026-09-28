@@ -39,7 +39,7 @@ Json to_json(const Message& m) {
         },
         [](const ToolResultPart& r) {
           return Json{{"type", "tool_result"}, {"call_id", r.call_id}, {"name", r.name},
-                      {"output", r.output}, {"is_error", r.is_error}};
+                      {"output", r.output}, {"is_error", r.is_error}, {"title", r.title}};
         },
     }, p));
   }
@@ -58,7 +58,7 @@ Message message_from_json(const Json& j) {
       m.parts.push_back(ToolCallPart{p.value("id", ""), p.value("name", ""), p.value("input", Json::object())});
     else if (type == "tool_result")
       m.parts.push_back(ToolResultPart{p.value("call_id", ""), p.value("name", ""), p.value("output", ""),
-                                       p.value("is_error", false)});
+                                       p.value("is_error", false), p.value("title", "")});
   }
   return m;
 }

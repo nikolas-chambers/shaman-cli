@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>shaman</title>
+<style>
+:root {
+  --bg: #ffffff; --panel: #f6f6f8; --fg: #1c1c21; --muted: #6d6d78; --line: #e4e4ea;
+  --accent: #5b4bdb; --accent-fg: #fff; --user: #efedff; --err: #c62828; --ok: #2e7d32; --code: #f1f1f4;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111114; --panel: #18181d; --fg: #ececf1; --muted: #9a9aa6; --line: #2a2a32;
+    --accent: #a99cff; --accent-fg: #111114; --user: #221f3a; --err: #ef6b6b; --ok: #6fcf7a; --code: #1f1f26;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111114; --panel: #18181d; --fg: #ececf1; --muted: #9a9aa6; --line: #2a2a32;
+  --accent: #a99cff; --accent-fg: #111114; --user: #221f3a; --err: #ef6b6b; --ok: #6fcf7a; --code: #1f1f26;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; display: flex; }
+button, select, textarea, input { font: inherit; color: inherit; }
+button { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+select { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; max-width: 260px; }
+#side { width: 270px; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+#side header { padding: 16px; display: flex; align-items: center; justify-content: space-between; }
+#side h1 { font-size: 18px; margin: 0; letter-spacing: .02em; }
+#sessions { overflow-y: auto; flex: 1; padding: 0 8px 8px; }
+.sess { padding: 8px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.sess:hover { background: var(--bg); color: var(--fg); }
+.sess.active { background: var(--bg); color: var(--fg); font-weight: 600; }
+#main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#bar { display: flex; gap: 8px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+#bar .spacer { flex: 1; }
+#title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
+#log { flex: 1; overflow-y: auto; padding: 20px max(16px, calc((100% - 860px) / 2)); }
+.msg { margin: 0 0 16px; }
+.msg.user { background: var(--user); border-radius: 12px; padding: 10px 14px; white-space: pre-wrap; }
+.msg.assistant p { margin: 0 0 10px; }
+.msg.notice { color: var(--muted); font-size: 13px; }
+.msg.error { color: var(--err); }
+.msg pre { background: var(--code); border-radius: 8px; padding: 10px 12px; overflow-x: auto; font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+.msg code { background: var(--code); border-radius: 4px; padding: 1px 4px; font: 13px ui-monospace, Menlo, Consolas, monospace; }
+.msg pre code { background: none; padding: 0; }
+.reasoning { color: var(--muted); font-style: italic; font-size: 14px; white-space: pre-wrap; }
+details.tool { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 8px; font-size: 13px; }
+details.tool summary { padding: 6px 10px; cursor: pointer; color: var(--muted); list-style: none; }
+details.tool summary::before { content: "› "; color: var(--accent); }
+details.tool.failed summary::before { content: "✗ "; color: var(--err); }
+details.tool pre { margin: 0; border-top: 1px solid var(--line); padding: 8px 10px; max-height: 320px; overflow: auto; white-space: pre-wrap;
+  font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+#composer { border-top: 1px solid var(--line); padding: 12px max(16px, calc((100% - 860px) / 2)) 16px; }
+#input { width: 100%; min-height: 56px; max-height: 40vh; resize: vertical; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 12px; padding: 10px 12px; outline: none; }
+#input:focus { border-color: var(--accent); }
+#row { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
+#row .hint { color: var(--muted); font-size: 12px; flex: 1; }
+#usage { color: var(--muted); font-size: 12px; }
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; align-items: center; justify-content: center; padding: 16px; }
+.modal.open { display: flex; }
+.card { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; padding: 18px; max-width: 560px; width: 100%; }
+.card h3 { margin: 0 0 8px; font-size: 16px; }
+.card pre { background: var(--code); padding: 8px 10px; border-radius: 8px; white-space: pre-wrap; word-break: break-all; font-size: 13px; }
+.card .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+.spin { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
+#menu { display: none; }
+@media (max-width: 760px) {
+  #side { position: fixed; z-index: 5; inset: 0 auto 0 0; transform: translateX(-100%); transition: transform .2s; }
+  #side.open { transform: none; }
+  #menu { display: inline-block; }
+  #title { max-width: 30vw; }
+}
+</style>
+</head>
+<body>
+<aside id="side">
+  <header><h1>shaman</h1><button class="primary" id="new">New</button></header>
+  <div id="sessions"></div>
+</aside>
+<main id="main">
+  <div id="bar">
+    <button id="menu" aria-label="Sessions">☰</button>
+    <span id="title">new session</span>
+    <span class="spacer"></span>
+    <select id="agent" title="Agent"></select>
+    <select id="model" title="Model"></select>
+    <button id="undo" title="Restore files to before the last turn">Undo</button>
+    <button id="compact" title="Summarise to free context">Compact</button>
+    <button id="export" title="Download as Markdown">Export</button>
+    <button id="theme" title="Toggle theme">◐</button>
+  </div>
+  <div id="log"></div>
+  <div id="composer">
+    <textarea id="input" placeholder="Ask shaman anything. @path attaches a file. Enter sends, Shift+Enter for a new line."></textarea>
+    <div id="row">
+      <span class="hint" id="status"></span>
+      <span id="usage"></span>
+      <button id="stop" hidden>Stop</button>
+      <button class="primary" id="send">Send</button>
+    </div>
+  </div>
+</main>
+<div class="modal" id="perm"><div class="card">
+  <h3 id="perm-title">Permission</h3>
+  <pre id="perm-subject"></pre>
+  <div class="actions">
+    <button data-reply="reject">Deny</button>
+    <button data-reply="always">Always</button>
+    <button class="primary" data-reply="once">Allow once</button>
+  </div>
+</div></div>
+<div class="modal" id="auth"><div class="card">
+  <h3>Server token</h3>
+  <p>This shaman server requires a token (<code>shaman serve --token</code>).</p>
+  <input id="token" type="password" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--panel)">
+  <div class="actions"><button class="primary" id="token-save">Save</button></div>
+</div></div>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+                set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+let token = store.get("shaman.token") || "";
+let current = null, busy = false, pendingPermission = null, opening = Promise.resolve();
+
+async function api(method, path, body) {
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = "Bearer " + token;
+  const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  if (res.status === 401) { $("auth").classList.add("open"); throw new Error("unauthorized"); }
+  return res;
+}
+const getJSON = async (path) => (await api("GET", path)).json();
+
+// --- minimal, safe Markdown ---
+function esc(s) { return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
+function inline(s) {
+  return esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|\W)\*([^*\s][^*]*)\*/g, "$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+}
+function markdown(src) {
+  const out = []; let para = [], list = null, code = null;
+  const flush = () => { if (para.length) out.push("<p>" + para.map(inline).join("<br>") + "</p>"); para = [];
+                        if (list) { out.push("<ul>" + list.map((l) => "<li>" + inline(l) + "</li>").join("") + "</ul>"); list = null; } };
+  for (const line of src.split("\n")) {
+    if (line.trim().startsWith("```")) {
+      if (code === null) { flush(); code = []; } else { out.push("<pre><code>" + esc(code.join("\n")) + "</code></pre>"); code = null; }
+      continue;
+    }
+    if (code !== null) { code.push(line); continue; }
+    const h = line.match(/^(#{1,6})\s+(.*)/);
+    if (h) { flush(); out.push(`<h${Math.min(h[1].length + 2, 6)}>${inline(h[2])}</h${Math.min(h[1].length + 2, 6)}>`); continue; }
+    const li = line.match(/^\s*[-*+]\s+(.*)/) || line.match(/^\s*\d+\.\s+(.*)/);
+    if (li) { if (para.length) { const l = list; list = null; flush(); list = l; } (list = list || []).push(li[1]); continue; }
+    if (!line.trim()) { flush(); continue; }
+    if (list) flush();
+    para.push(line);
+  }
+  if (code !== null) out.push("<pre><code>" + esc(code.join("\n")) + "</code></pre>");
+  flush();
+  return out.join("");
+}
+
+// --- transcript ---
+function add(cls, html) {
+  const el = document.createElement("div"); el.className = "msg " + cls; el.innerHTML = html;
+  $("log").appendChild(el); scroll(); return el;
+}
+function scroll() { const l = $("log"); if (l.scrollHeight - l.scrollTop - l.clientHeight < 200) l.scrollTop = l.scrollHeight; }
+function toolCard(title, output, failed) {
+  const d = document.createElement("details"); d.className = "tool" + (failed ? " failed" : "");
+  d.innerHTML = `<summary>${esc(title)}</summary><pre>${esc(output || "")}</pre>`;
+  $("log").appendChild(d); scroll();
+}
+function renderHistory(messages) {
+  $("log").innerHTML = "";
+  for (const m of messages) for (const p of m.parts) {
+    if (p.type === "text") m.role === "user" ? add("user", esc(p.text)) : add("assistant", markdown(p.text));
+    else if (p.type === "tool_result") toolCard(p.title || p.name, p.output, p.is_error);
+  }
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+// --- sessions ---
+async function loadSessions() {
+  const list = await getJSON("/session");
+  const box = $("sessions"); box.innerHTML = "";
+  for (const s of list) {
+    const el = document.createElement("div");
+    el.className = "sess" + (current && s.id === current.id ? " active" : "");
+    el.textContent = s.title || s.id; el.title = s.id;
+    el.onclick = () => { openSession(s); $("side").classList.remove("open"); };
+    box.appendChild(el);
+  }
+  return list;
+}
+function openSession(s) { return (opening = doOpen(s)); }
+async function doOpen(s) {
+  current = s; store.set("shaman.session", s.id);
+  $("title").textContent = s.title || "new session";
+  $("agent").value = s.agent;
+  usage(s);
+  renderHistory(await getJSON(`/session/${s.id}/message`));
+  loadSessions();
+}
+async function newSession() {
+  const res = await api("POST", "/session", { agent: $("agent").value || "build" });
+  await openSession(await res.json());
+}
+function usage(s) { $("usage").textContent = s ? `${s.usage?.input ?? s.input_tokens ?? 0} in · ${s.usage?.output ?? s.output_tokens ?? 0} out · $${(s.cost || 0).toFixed(4)}` : ""; }
+
+// --- sending ---
+function setBusy(b) {
+  busy = b; $("send").hidden = b; $("stop").hidden = !b;
+  $("status").innerHTML = b ? '<span class="spin"></span> working…' : "";
+}
+async function send() {
+  const text = $("input").value.trim();
+  if (!text || busy) return;
+  await opening;
+  if (!current) await newSession();
+  $("input").value = "";
+  add("user", esc(text));
+  setBusy(true);
+  let assistant = null, reasoning = null, buffer = "", thought = "";
+  const body = { text, agent: $("agent").value };
+  if ($("model").value) body.model = $("model").value;
+  try {
+    const res = await api("POST", `/session/${current.id}/message`, body);
+    if (!res.ok) { add("error", esc((await res.json()).error || res.statusText)); return; }
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let pending = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      pending += dec.decode(value, { stream: true });
+      let i;
+      while ((i = pending.indexOf("\n\n")) >= 0) {
+        const raw = pending.slice(0, i); pending = pending.slice(i + 2);
+        let event = "message", data = "";
+        for (const l of raw.split("\n")) {
+          if (l.startsWith("event:")) event = l.slice(6).trim();
+          else if (l.startsWith("data:")) data += (data ? "\n" : "") + l.slice(5).replace(/^ /, "");
+        }
+        if (!data) continue;
+        const d = JSON.parse(data);
+        if (event === "text") { buffer += d.text; (assistant ||= add("assistant", "")).innerHTML = markdown(buffer); reasoning = null; scroll(); }
+        else if (event === "reasoning") { thought += d.text; (reasoning ||= add("reasoning", "")).textContent = thought; }
+        else if (event === "tool_start") { assistant = null; buffer = ""; }
+        else if (event === "tool_end") toolCard(d.title || d.name, d.output, d.is_error);
+        else if (event === "notice") add("notice", esc(d.text));
+        else if (event === "permission") askPermission(d);
+        else if (event === "error") add("error", esc(d.message));
+        else if (event === "done") usage(d);
+      }
+    }
+  } catch (e) { add("error", esc(String(e.message || e))); }
+  finally { setBusy(false); const s = await getJSON(`/session/${current.id}`); current = s; $("title").textContent = s.title || "session"; usage(s); loadSessions(); }
+}
+function askPermission(d) {
+  pendingPermission = d.id;
+  $("perm-title").textContent = "Allow " + d.permission + "?";
+  $("perm-subject").textContent = d.title || d.subject;
+  $("perm").classList.add("open");
+}
+document.querySelectorAll("#perm [data-reply]").forEach((b) => b.onclick = async () => {
+  $("perm").classList.remove("open");
+  await api("POST", `/permission/${pendingPermission}`, { reply: b.dataset.reply });
+});
+
+// --- wiring ---
+$("send").onclick = send;
+$("stop").onclick = () => current && api("POST", `/session/${current.id}/abort`);
+$("new").onclick = newSession;
+$("menu").onclick = () => $("side").classList.toggle("open");
+$("input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
+$("undo").onclick = async () => { if (!current) return; const r = await (await api("POST", `/session/${current.id}/undo`)).json(); add("notice", esc(r.changes || r.error || "done")); };
+$("compact").onclick = async () => { if (!current) return; await api("POST", `/session/${current.id}/compact`); openSession(current); };
+$("export").onclick = async () => {
+  if (!current) return;
+  const msgs = await getJSON(`/session/${current.id}/message`);
+  let md = `# ${current.title || current.id}\n\n`;
+  for (const m of msgs) for (const p of m.parts) if (p.type === "text") md += `## ${m.role === "user" ? "User" : "Assistant"}\n\n${p.text}\n\n`;
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([md], { type: "text/markdown" }));
+  a.download = `${current.id}.md`; a.click();
+};
+$("theme").onclick = () => {
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const now = document.documentElement.dataset.theme || (dark ? "dark" : "light");
+  document.documentElement.dataset.theme = now === "dark" ? "light" : "dark";
+  store.set("shaman.theme", document.documentElement.dataset.theme);
+};
+$("token-save").onclick = () => { token = $("token").value; store.set("shaman.token", token); $("auth").classList.remove("open"); init(); };
+if (store.get("shaman.theme")) document.documentElement.dataset.theme = store.get("shaman.theme");
+
+async function init() {
+  const [agents, models] = await Promise.all([getJSON("/agents"), getJSON("/models")]);
+  $("agent").innerHTML = agents.filter((a) => a.mode !== "subagent").map((a) => `<option value="${esc(a.name)}">${esc(a.name)}</option>`).join("");
+  $("model").innerHTML = '<option value="">default model</option>' +
+    models.map((m) => `<option value="${esc(m.id)}">${esc(m.id)}${m.free ? " (free)" : ""}</option>`).join("");
+  const list = await loadSessions();
+  const last = list.find((s) => s.id === store.get("shaman.session")) || list[0];
+  if (last) openSession(last);
+  $("input").focus();
+}
+init().catch(() => {});
+</script>
+</body>
+</html>

@@ -54,7 +54,8 @@ std::vector<Command> discover(const Config& config, const fs::path& root) {
       found[c.name] = std::move(c);
     }
   }
-  for (auto& [name, spec] : config.raw.value("command", Json::object()).items()) {
+  auto configured = config.raw.value("command", Json::object());  // named: items() must not outlive it
+  for (auto& [name, spec] : configured.items()) {
     Command c{name, spec.value("description", ""), spec.value("template", ""), std::nullopt, std::nullopt, "config"};
     if (spec.contains("agent")) c.agent = spec["agent"].get<std::string>();
     if (spec.contains("model")) c.model = spec["model"].get<std::string>();

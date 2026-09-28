@@ -129,7 +129,7 @@ class Ui {
         if (auto* t = std::get_if<llm::TextPart>(&p))
           blocks_.push_back({m.role == llm::Role::user ? Block::user : Block::assistant, t->text});
         else if (auto* r = std::get_if<llm::ToolResultPart>(&p))
-          blocks_.push_back({Block::tool, r->name, r->output, r->is_error});
+          blocks_.push_back({Block::tool, r->title.empty() ? r->name : r->title, r->output, r->is_error});
       }
     scroll_ = 0;
   }
@@ -410,7 +410,7 @@ class Ui {
     std::ofstream(tmp) << input_;
     term_.write("\x1b[?1049l");
     term_.flush();
-    std::system((editor + " '" + tmp.string() + "'").c_str());
+    [[maybe_unused]] int rc = std::system((editor + " '" + tmp.string() + "'").c_str());
     term_.write("\x1b[?1049h");
     std::ifstream in(tmp);
     std::stringstream ss;
@@ -534,7 +534,7 @@ class Ui {
       switch (b.kind) {
         case Block::user: {
           out.push_back("");
-          for (auto& l : wrap(std::string(BOLD) + b.text, width - 2)) out.push_back(std::string(ACCENT) + "▌ " + R + l);
+          for (auto& l : wrap(std::string(BOLD) + b.text, width - 2)) out.push_back(std::string(ACCENT) + glyph("▌ ", "| ") + R + l);
           out.push_back("");
           break;
         }
@@ -545,13 +545,13 @@ class Ui {
           for (auto& l : wrap(std::string(DIM) + "\x1b[3m" + b.text, width, "  ")) out.push_back(l);
           break;
         case Block::tool: {
-          auto line = std::string(b.failed ? RED : CYAN) + (b.failed ? "✗ " : "› ") + R + DIM + b.text + R;
+          auto line = std::string(b.failed ? RED : CYAN) + (b.failed ? glyph("✗ ", "x ") : glyph("› ", "> ")) + R + DIM + b.text + R;
           out.push_back(line);
           if (details_ && !b.detail.empty()) {
             auto ls = str::lines(b.detail);
             for (size_t i = 0; i < ls.size() && i < 12; ++i)
               for (auto& l : wrap(std::string(DIM) + ls[i], width - 4)) out.push_back("    " + l);
-            if (ls.size() > 12) out.push_back(std::format("    {}… {} more lines{}", DIM, ls.size() - 12, R));
+            if (ls.size() > 12) out.push_back(std::format("    {}... {} more lines{}", DIM, ls.size() - 12, R));
           }
           break;
         }
@@ -587,33 +587,39 @@ class Ui {
     scroll_ = std::min(scroll_, max_scroll);
     int first = std::max(0, int(lines.size()) - body_h - scroll_);
 
-    std::string out = "\x1b[?25l\x1b[H";
+    // Every row is placed explicitly and clipped to the width, so nothing can
+    // wrap or scroll the screen whatever the terminal thinks a glyph's width is.
+    std::string out = "\x1b[?25l";
+    int row = 0;
+    auto put = [&](const std::string& line) {
+      out += std::format("\x1b[{};1H", ++row) + clip(line, size_t(sz.cols)) + R + "\x1b[K";
+    };
     auto* agent = app_.agents->find(session_.agent);
     std::string model = !shown_model_.empty() ? shown_model_ : !model_.empty() ? model_ : session_.model;
     if (model.empty())
       if (auto d = app_.providers->default_model()) model = d->ref();
-    auto header = std::format(" {}shaman{} {}· {}{}{} · {} · {}{}", BOLD, R, DIM, R, ACCENT, agent ? agent->name : session_.agent,
-                              R + std::string(DIM) + model, session_.title.empty() ? "new session" : session_.title.substr(0, 60), R);
-    out += header + "\x1b[K\r\n";
+    auto dot = glyph(" · ", " | ");
+    put(std::format(" {}shaman{}{}{}{}{}{}{}{}{}", BOLD, R, DIM, dot, R + std::string(ACCENT), agent ? agent->name : session_.agent,
+                    R + std::string(DIM) + dot, model, dot, (session_.title.empty() ? "new session" : session_.title.substr(0, 60)) + R));
     for (int i = 0; i < body_h; ++i) {
       int idx = first + i;
-      out += " " + (idx < int(lines.size()) ? lines[idx] : "") + "\x1b[K\r\n";
+      put(" " + (idx < int(lines.size()) ? lines[idx] : ""));
     }
     static const char* spinner[] = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
-    std::string status = busy_ ? std::format(" {}{} working{} {}esc to stop{}", ACCENT, spinner[spin_ % 10], R, DIM, R)
-                               : std::format(" {}enter send · tab agent · ctrl-p commands{}", DIM, R);
-    auto right_status = std::format("{}{}{} in · {} out · ${:.4f}{}{} ", DIM, scroll_ ? std::format("↑{} · ", scroll_) : "",
-                                    session_.usage.input, session_.usage.output, session_.cost, details_ ? " · details" : "", R);
-    int pad = sz.cols - int(display_width(status)) - int(display_width(right_status));
-    out += status + std::string(std::max(1, pad), ' ') + right_status + "\x1b[K\r\n";
-    out += std::string(DIM) + std::string(size_t(sz.cols), '-') + R + "\x1b[K\r\n";
+    static const char* ascii_spinner[] = {"|", "/", "-", "\\"};
+    std::string spin = unicode() ? spinner[spin_ % 10] : ascii_spinner[spin_ % 4];
+    std::string status = busy_ ? std::format(" {}{} working{} {}esc to stop{}", ACCENT, spin, R, DIM, R)
+                               : std::format(" {}enter send{}tab agent{}ctrl-p commands{}", DIM, dot, dot, R);
+    auto right_status = std::format("{}{}{} in{}{} out{}${:.4f}{}{} ", DIM, scroll_ ? std::format("{}{}{}", glyph("↑", "^"), scroll_, dot) : "",
+                                    session_.usage.input, dot, session_.usage.output, dot, session_.cost, details_ ? dot + "details" : "", R);
+    int pad = sz.cols - 1 - int(display_width(status)) - int(display_width(right_status));  // never touch the last column
+    put(status + std::string(size_t(std::max(1, pad)), ' ') + right_status);
+    put(std::string(DIM) + std::string(size_t(sz.cols - 1), '-'));
 
     // Input rows; compute the cursor's row/col.
     int start_row = std::max(0, int(in_rows.size()) - in_h);
-    for (int i = 0; i < in_h; ++i) {
-      out += (i == 0 && start_row == 0 ? std::string(ACCENT) + "› " + R : "  ") + in_rows[start_row + i] + "\x1b[K";
-      if (i + 1 < in_h) out += "\r\n";
-    }
+    for (int i = 0; i < in_h; ++i)
+      put((i == 0 && start_row == 0 ? std::string(ACCENT) + glyph("› ", "> ") + R : "  ") + in_rows[start_row + i]);
     auto before = input_.substr(0, cursor_);
     auto before_lines = str::split(before, '\n');
     int crow = 0, ccol = 0;
@@ -635,14 +641,15 @@ class Ui {
 
   std::string box(Size sz, int w, int h, const std::string& title, const std::vector<std::string>& rows) {
     int top = std::max(1, (sz.rows - h) / 2), left = std::max(1, (sz.cols - w) / 2);
-    std::string out = std::format("\x1b[{};{}H{}╭─ {}{}{} {}╮{}", top, left, ACCENT, BOLD, title, R + std::string(ACCENT),
-                                  std::string(size_t(std::max(0, w - 5 - int(display_width(title)))), '-'), R);
+    std::string out = std::format("\x1b[{};{}H{}{}{}{}{} {}{}{}", top, left, ACCENT, glyph("╭─ ", "+- "), BOLD, title, R + std::string(ACCENT),
+                                  std::string(size_t(std::max(0, w - 5 - int(display_width(title)))), '-'), glyph("╮", "+"), R);
     for (int i = 0; i < h - 2; ++i) {
       auto row = i < int(rows.size()) ? rows[i] : "";
       int padn = w - 4 - int(display_width(row));
-      out += std::format("\x1b[{};{}H{}│{} {}{} {}│{}", top + 1 + i, left, ACCENT, R, row, std::string(size_t(std::max(0, padn)), ' '), ACCENT, R);
+      out += std::format("\x1b[{};{}H{}{}{} {}{} {}{}{}", top + 1 + i, left, ACCENT, glyph("│", "|"), R, clip(row, size_t(w - 4)),
+                         std::string(size_t(std::max(0, padn)), ' '), ACCENT, glyph("│", "|"), R);
     }
-    out += std::format("\x1b[{};{}H{}╰{}╯{}", top + h - 1, left, ACCENT, std::string(size_t(w - 2), '-'), R);
+    out += std::format("\x1b[{};{}H{}{}{}{}{}", top + h - 1, left, ACCENT, glyph("╰", "+"), std::string(size_t(w - 2), '-'), glyph("╯", "+"), R);
     return out;
   }
 

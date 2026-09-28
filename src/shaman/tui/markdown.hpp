@@ -8,6 +8,11 @@
 namespace shaman::tui {
 
 size_t display_width(std::string_view s);  // code points, ANSI escapes excluded
+std::string clip(const std::string& styled, size_t width);  // cut to width, keeping escapes
+
+// False when the terminal's locale isn't UTF-8; the UI then draws ASCII only.
+bool unicode();
+std::string glyph(const char* utf8, const char* ascii);
 std::vector<std::string> wrap(const std::string& styled, size_t width, const std::string& indent = "");
 
 // Render Markdown (headings, lists, quotes, fenced code, **bold**, *italic*,

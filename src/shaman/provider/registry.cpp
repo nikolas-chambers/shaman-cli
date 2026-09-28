@@ -35,7 +35,8 @@ void Registry::apply_config(const Json& providers) {
     if (auto v = get("keyless"); v.is_boolean()) p->keyless = v;
     if (auto v = get("headers"); v.is_object())
       for (auto& [h, val] : v.items()) p->headers[h] = val.get<std::string>();
-    for (auto& [mid, m] : spec.value("models", Json::object()).items()) {
+    auto models = spec.value("models", Json::object());
+    for (auto& [mid, m] : models.items()) {
       ModelInfo info{mid, m.value("name", mid)};
       info.context = m.value("context", info.context);
       info.output = m.value("output", info.output);

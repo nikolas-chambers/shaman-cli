@@ -75,6 +75,106 @@ check "undo restores file"   "undo ok"                    bash -c "
   printf '/undo\n/exit\n' | '$shaman' -c >/dev/null
   grep -q original u.txt && echo 'undo ok'"
 
+# --- attachments, commands, skills --------------------------------------------
+check "@file mention"        "the answer is 42"           "$shaman" run "summarise @notes.txt"
+printf '\x89PNG\r\n\x1a\n0000' > pic.png
+check "image attachment"     "saw image"                  "$shaman" run -f pic.png image
+mkdir -p .shaman/commands .shaman/skills/demo
+printf -- '---\ndescription: greet\n---\nsay $ARGUMENTS loudly\n' > .shaman/commands/hi.md
+printf -- '---\nname: demo\ndescription: demo skill\n---\nDemo skill body.\n' > .shaman/skills/demo/SKILL.md
+check "custom command"       "echo: say there loudly"     "$shaman" run --command hi there
+check "skills discovered"    "demo skill"                 "$shaman" debug skills
+check "skill tool"           "Demo skill body"            "$shaman" run 'call skill {"name":"demo"}'
+check "apply_patch tool"     "A added.txt"                "$shaman" run --yolo 'call apply_patch {"patchText":"*** Begin Patch\n*** Add File: added.txt\n+hello patch\n*** End Patch"}'
+check "websearch tool"       "https://example.com/docs"   env SHAMAN_SEARCH_URL="$url/search" "$shaman" run 'call websearch {"query":"example"}'
+
+# --- providers and auth --------------------------------------------------------
+export SHAMAN_CONFIG_CONTENT='{"provider":{"mockant":{"api":"anthropic","baseURL":"'"$url"'","apiKey":"k","models":{"claude-test":{"name":"Claude Test"}}}}}'
+check "anthropic provider"   "anthropic says: the answer is 42" "$shaman" run -m mockant/claude-test read notes.txt
+check "anthropic reasoning"  "hmm"                        "$shaman" run --reasoning -m mockant/claude-test hello
+unset SHAMAN_CONFIG_CONTENT
+check "auth login"           "Saved"                      bash -c "printf 'sk-test\n' | '$shaman' auth login openrouter"
+check "auth list"            "auth"                       "$shaman" auth list
+check "keyed provider shown" "OpenRouter (auth)"          "$shaman" models
+check "unkeyed needs key"    "needs an API key"           "$shaman" run -m anthropic/claude-sonnet-5 hi
+
+# --- plugins, LSP, MCP ---------------------------------------------------------
+export SHAMAN_CONFIG_CONTENT='{"plugin":["'"$repo"'/examples/plugins/guard.py"],
+  "lsp":{"servers":{"mock":{"command":["python3","'"$repo"'/tests/mock/mock_lsp.py"],"extensions":[".mock"]}}},
+  "mcp":{"mock":{"command":["python3","'"$repo"'/tests/mock/mock_mcp.py"]}}}'
+check "plugin blocks"        "blocked by plugin"          "$shaman" run --yolo 'run git push --force origin main'
+check "plugin tool asks"     "permission denied"          "$shaman" run 'call guard_status {}'
+check "plugin tool"          "Blocks force-push"          "$shaman" run --yolo 'call guard_status {}'
+check "plugin listed"        "guard"                      "$shaman" plugins
+check "lsp after write"      "LSP errors in bad.mock"     "$shaman" run --yolo 'call write {"filePath":"bad.mock","content":"ok\nERROR here\n"}'
+check "lsp tool hover"       "mock hover"                 "$shaman" run 'call lsp {"operation":"hover","filePath":"bad.mock","line":1,"column":1}'
+check "debug lsp"            "mock error"                 "$shaman" debug lsp bad.mock
+check "mcp stdio list"       "connected, 3 tools"         "$shaman" mcp list
+check "mcp stdio tool"       "echo: hi"                   "$shaman" run --yolo 'call mock_echo {"text":"hi"}'
+unset SHAMAN_CONFIG_CONTENT
+
+start_mcp() {  # start_mcp <name> [flags] -> sets $mcp_url
+  local name="$1"; shift
+  python3 "$repo/tests/mock/mock_mcp.py" --http 0 "$@" >"$tmp/$name.out" 2>&1 &
+  pids+=($!)
+  for _ in $(seq 50); do grep -q "listening on" "$tmp/$name.out" 2>/dev/null && break; sleep 0.1; done
+  mcp_url="http://127.0.0.1:$(awk '/listening on/ {print $3}' "$tmp/$name.out")/mcp"
+}
+start_mcp sse --sse
+export SHAMAN_CONFIG_CONTENT='{"mcp":{"remote":{"url":"'"$mcp_url"'"}}}'
+check "mcp http+sse tool"    "echo: over http"            "$shaman" run --yolo 'call remote_echo {"text":"over http"}'
+start_mcp oauth --oauth
+export SHAMAN_CONFIG_CONTENT='{"mcp":{"secure":{"url":"'"$mcp_url"'"}}}'
+check "mcp oauth required"   "unauthorised"               "$shaman" mcp list
+check "mcp oauth login"      "Logged in to secure"        env SHAMAN_OPEN="curl -s -L -o /dev/null" "$shaman" mcp auth secure
+check "mcp oauth tool"       "tool said: 5"               "$shaman" run --yolo 'call secure_add {"a":2,"b":3}'
+check "mcp logout"           "Logged out of secure"       "$shaman" mcp logout secure
+unset SHAMAN_CONFIG_CONTENT
+
+check "formatter after write" "formatted with upper"      env SHAMAN_CONFIG_CONTENT='{"formatter":{"upper":{"command":["sed","-i","s/hello/HELLO/","$FILE"],"extensions":[".txt"]}}}' \
+                                                          "$shaman" run --yolo 'call write {"filePath":"fmt.txt","content":"hello\n"}'
+
+# --- sessions: export / import / share / stats ---------------------------------
+check "export markdown"      "## User"                    "$shaman" export
+check "export json"          "wrote"                      "$shaman" export --format json -o "$tmp/s.json"
+check "import"               "imported as"                "$shaman" import "$tmp/s.json"
+check "share page"           "page:"                      "$shaman" share
+check "stats"                "tool calls"                 "$shaman" stats
+
+# --- server, attach, SDK, ACP, MCP serve ---------------------------------------
+"$shaman" serve --port 0 >"$tmp/serve.out" 2>&1 &
+pids+=($!)
+for _ in $(seq 50); do grep -q "listening on" "$tmp/serve.out" 2>/dev/null && break; sleep 0.1; done
+srv="$(awk '/listening on/ {print $5}' "$tmp/serve.out")"
+check "server health"        '"version"'                  curl -s --noproxy '*' "$srv/health"
+check "server web ui"        "<title>shaman</title>"      curl -s --noproxy '*' "$srv/"
+check "run --attach"         "echo: attached"             "$shaman" run --attach "$srv" attached
+check "python client sdk"    "tool said: the answer is 42" python3 -c "
+import sys; sys.path.insert(0, '$repo/sdk/python')
+from shaman_client import Shaman
+sh = Shaman('$srv'); s = sh.create_session()
+print(''.join(e.get('text', '') for e in sh.prompt(s['id'], 'read notes.txt') if e['type'] == 'text'))"
+check "acp prompt"           '"stopReason":"end_turn"'    bash -c "printf '%s\n' \
+  '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":1}}' \
+  '{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"session/new\",\"params\":{\"cwd\":\"$project\",\"mcpServers\":[]}}' \
+  | '$shaman' acp > '$tmp/acp1.out'; sid=\$(grep -o 'ses_[0-9a-f]*' '$tmp/acp1.out' | head -1); printf '%s\n' \
+  '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":1}}' \
+  \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":2,\\\"method\\\":\\\"session/load\\\",\\\"params\\\":{\\\"sessionId\\\":\\\"\$sid\\\",\\\"cwd\\\":\\\"$project\\\",\\\"mcpServers\\\":[]}}\" \
+  \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":3,\\\"method\\\":\\\"session/prompt\\\",\\\"params\\\":{\\\"sessionId\\\":\\\"\$sid\\\",\\\"prompt\\\":[{\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"hello acp\\\"}]}}\" \
+  | '$shaman' acp"
+check "mcp serve"            "the answer is 42"           bash -c "printf '%s\n' \
+  '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}' \
+  '{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}' \
+  '{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"read\",\"arguments\":{\"filePath\":\"notes.txt\"}}}' \
+  | '$shaman' mcp serve"
+
+# --- GitHub, upgrade, TUI -----------------------------------------------------
+echo '{"comment":{"body":"/shaman hello github","user":{"login":"nik"}},"issue":{"number":7,"title":"t","body":"b"}}' > "$tmp/event.json"
+check "github dry run"       "echo: You were asked"       env GITHUB_EVENT_PATH="$tmp/event.json" GITHUB_REPOSITORY=o/r "$shaman" github run --dry-run
+check "github install"       "Wrote .github/workflows/shaman.yml" "$shaman" github install
+check "upgrade check"        "v9.9.9 is available"        env SHAMAN_UPDATE_API="$url" "$shaman" upgrade --check
+check "tui smoke"            "tui ok"                     python3 "$repo/tests/e2e/tui_smoke.py" "$shaman"
+
 start_mock limited --rate-limit big-pickle
 export SHAMAN_ZEN_URL="$url"
 check "free fallback"        "switching to opencode/space-bunny-free" "$shaman" run hi

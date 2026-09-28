@@ -151,7 +151,8 @@ Result<Config> Config::from_json(const Json& j) {
     c.agent = j.value("agent", Json::object());
     c.provider = j.value("provider", Json::object());
     c.instructions = j.value("instructions", std::vector<std::string>{});
-    for (auto& [name, m] : j.value("mcp", Json::object()).items()) {
+    auto mcp = j.value("mcp", Json::object());
+    for (auto& [name, m] : mcp.items()) {
       McpServerConfig s;
       s.url = m.value("url", "");
       s.type = m.value("type", s.url.empty() ? "local" : "remote");

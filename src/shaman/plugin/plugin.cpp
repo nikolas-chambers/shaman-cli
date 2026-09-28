@@ -100,7 +100,7 @@ class PluginTool final : public tool::Tool {
   std::string description() const override { return spec_.value("description", ""); }
   Json schema() const override { return spec_.value("parameters", Json{{"type", "object"}, {"properties", Json::object()}}); }
   tool::Output run(const Json& input, tool::Context& ctx) override {
-    if (!ctx.permit(spec_.value("permission", name()), input.dump(), plugin_->name() + ": " + name()))
+    if (!ctx.permit(spec_.value("permission", "plugin"), name(), plugin_->name() + ": " + name()))
       return tool::error("permission denied");
     auto r = plugin_->call("tool.call", {{"name", name()}, {"input", input}, {"session", ctx.session_id},
                                          {"root", ctx.root.string()}}, std::chrono::minutes(10));

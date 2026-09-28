@@ -31,7 +31,9 @@ FREE_MODELS = ["big-pickle", "space-bunny-free", "nemotron-3-ultra-free", "longc
 def last_user_text(messages):
     for m in reversed(messages):
         if m["role"] == "user":
-            return m["content"] if isinstance(m["content"], str) else ""
+            if isinstance(m["content"], str):
+                return m["content"]
+            return " ".join(p.get("text", "") for p in m["content"] if p.get("type") == "text")
     return ""
 
 
@@ -49,6 +51,18 @@ def make_handler(args):
             self.wfile.write(data)
 
         def do_GET(self):
+            if "/releases/" in self.path:  # self-update check (SHAMAN_UPDATE_API)
+                return self.send_json(200, {"tag_name": "v9.9.9", "assets": []})
+            if self.path.startswith("/search"):  # websearch (SHAMAN_SEARCH_URL), DuckDuckGo-like HTML
+                html = ('<a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fdocs&rut=x">'
+                        'Example <b>Docs</b></a><a class="result__snippet" href="#">The example &amp; snippet</a>')
+                data = html.encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
             if self.path.rstrip("/").endswith("/models"):
                 self.send_json(200, {"object": "list", "data": [{"id": m} for m in FREE_MODELS + ["paid-model"]]})
             else:
@@ -59,6 +73,8 @@ def make_handler(args):
             if args.log:
                 with open(args.log, "a") as f:
                     f.write(json.dumps(body) + "\n")
+            if self.path.rstrip("/").endswith("/messages"):
+                return self.anthropic(body)
             if not self.path.rstrip("/").endswith("/chat/completions"):
                 return self.send_json(404, {"error": {"message": "not found"}})
             if body.get("model") in args.rate_limit:
@@ -92,7 +108,10 @@ def make_handler(args):
             prompt = last_user_text(messages)
             usage = {"prompt_tokens": 100, "completion_tokens": 10}
 
-            if last["role"] == "tool":
+            if last["role"] == "tool" and prompt.startswith("call "):
+                event({"content": "tool said: " + last.get("content", "").strip()})
+                event(finish="stop", usage=usage)
+            elif last["role"] == "tool":
                 if prompt.startswith("loop"):
                     tool_call("glob", {"pattern": "*.nothing"})
                 else:
@@ -107,11 +126,61 @@ def make_handler(args):
                 tool_call("bash", {"command": prompt[4:].strip(), "description": "test command"})
             elif prompt.startswith("loop"):
                 tool_call("glob", {"pattern": "*.nothing"})
+            elif prompt.startswith("call "):
+                # "call <tool> <json args>" invokes any tool, e.g. call mock_echo {"text": "hi"}
+                name, _, raw = prompt[5:].partition(" ")
+                tool_call(name, json.loads(raw or "{}"))
+            elif prompt.startswith("image"):
+                has_image = any(isinstance(m.get("content"), list) and any(p.get("type") == "image_url" for p in m["content"])
+                                for m in messages)
+                event({"content": "saw image" if has_image else "no image"})
+                event(finish="stop", usage=usage)
             else:
                 for word in f"echo: {prompt}".split(" "):
                     event({"content": word + " "})
                 event(finish="stop", usage=usage)
             self.wfile.write(b"data: [DONE]\n\n")
+
+        def anthropic(self, body):
+            """Anthropic Messages API streaming, same scenarios as chat completions."""
+            if body.get("model") in args.rate_limit:
+                return self.send_json(429, {"type": "error", "error": {"type": "rate_limit_error", "message": "rate limited"}})
+            if "max_tokens" not in body:
+                return self.send_json(400, {"type": "error", "error": {"type": "invalid_request_error", "message": "max_tokens required"}})
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+
+            def ev(name, data):
+                data["type"] = name
+                self.wfile.write(f"event: {name}\ndata: {json.dumps(data)}\n\n".encode())
+                self.wfile.flush()
+
+            last = body["messages"][-1]
+            blocks = last["content"] if isinstance(last["content"], list) else [{"type": "text", "text": last["content"]}]
+            result = next((b for b in blocks if b.get("type") == "tool_result"), None)
+            text = " ".join(b.get("text", "") for b in blocks if b.get("type") == "text")
+            ev("message_start", {"message": {"id": "msg_1", "role": "assistant", "usage": {"input_tokens": 50, "output_tokens": 1}}})
+            if result is None and text.startswith("read "):
+                ev("content_block_start", {"index": 0, "content_block": {"type": "text", "text": ""}})
+                ev("content_block_delta", {"index": 0, "delta": {"type": "text_delta", "text": "Reading. "}})
+                ev("content_block_stop", {"index": 0})
+                ev("content_block_start", {"index": 1, "content_block": {"type": "tool_use", "id": "toolu_1", "name": "read", "input": {}}})
+                raw = json.dumps({"filePath": text[5:].strip()})
+                ev("content_block_delta", {"index": 1, "delta": {"type": "input_json_delta", "partial_json": raw[:5]}})
+                ev("content_block_delta", {"index": 1, "delta": {"type": "input_json_delta", "partial_json": raw[5:]}})
+                ev("content_block_stop", {"index": 1})
+                ev("message_delta", {"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 20}})
+            else:
+                reply = "anthropic says: " + (result["content"].split("\n")[0].split("\t", 1)[-1].strip() if result else text)
+                ev("content_block_start", {"index": 0, "content_block": {"type": "thinking", "thinking": ""}})
+                ev("content_block_delta", {"index": 0, "delta": {"type": "thinking_delta", "thinking": "hmm"}})
+                ev("content_block_stop", {"index": 0})
+                ev("content_block_start", {"index": 1, "content_block": {"type": "text", "text": ""}})
+                ev("content_block_delta", {"index": 1, "delta": {"type": "text_delta", "text": reply}})
+                ev("content_block_stop", {"index": 1})
+                ev("message_delta", {"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 12}})
+            ev("message_stop", {})
 
     return Handler
 

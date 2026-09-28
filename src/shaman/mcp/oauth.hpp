@@ -22,5 +22,6 @@ Result<void> logout(const std::string& name);
 bool has_tokens(const std::string& name);
 
 std::string pkce_challenge(const std::string& verifier);  // base64url(sha256(verifier))
+std::string random_token(size_t bytes = 32);              // CSPRNG, base64url
 
 }  // namespace shaman::mcp::oauth

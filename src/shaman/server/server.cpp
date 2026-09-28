@@ -12,6 +12,10 @@
 #include "shaman/core/net.hpp"
 #include "shaman/version.hpp"
 
+namespace shaman::embedded {
+extern const std::string_view web_index;
+}
+
 namespace shaman::server {
 namespace {
 
@@ -125,7 +129,8 @@ class Server {
                                         {"Access-Control-Allow-Headers", "Content-Type, Authorization"}});
       return;
     }
-    if (!opts_.token.empty() && req->header("authorization") != "Bearer " + opts_.token) {
+    bool page = req->method == "GET" && (req->path == "/" || req->path == "/index.html");  // static; API calls still need the token
+    if (!page && !opts_.token.empty() && req->header("authorization") != "Bearer " + opts_.token) {
       c.json(401, R"({"error":"unauthorized"})");
       return;
     }
@@ -151,6 +156,8 @@ class Server {
     std::smatch m;
     auto& M = req.method;
 
+    if (M == "GET" && (req.path == "/" || req.path == "/index.html"))
+      return void(c.respond(200, "text/html; charset=utf-8", embedded::web_index));
     if (M == "GET" && req.path == "/health") return void(c.json(200, Json{{"version", kVersion}}.dump()));
     if (M == "GET" && req.path == "/config") return void(c.json(200, app_.config.raw.dump()));
     if (M == "GET" && req.path == "/models") {

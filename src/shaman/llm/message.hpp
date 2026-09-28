@@ -31,6 +31,7 @@ struct ToolResultPart {
   std::string name;
   std::string output;
   bool is_error = false;
+  std::string title;  // UI summary ("Read src/main.cpp"); not sent to models
 };
 
 using Part = std::variant<TextPart, ReasoningPart, ImagePart, ToolCallPart, ToolResultPart>;

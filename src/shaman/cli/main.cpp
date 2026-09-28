@@ -132,7 +132,7 @@ int main(int argc, char** argv) {
                                            "export", "import", "share", "stats", "mcp", "plugins", "pr", "github", "debug"};
   bool interactive = cmd.empty() || !known.contains(cmd);
   bool runtime = (interactive || cmd == "run" || cmd == "serve" || cmd == "web" || cmd == "pr" || cmd == "github" ||
-                  (cmd == "mcp" && pos.size() > 1 && pos[1] == "serve")) && !args.has("no-mcp");
+                  cmd == "plugins" || (cmd == "mcp" && pos.size() > 1 && pos[1] == "serve")) && !args.has("no-mcp");
   auto app = App::create(cwd, runtime);
   if (!app) return std::cerr << "error: " << app.error().message << "\n", 1;
   auto& a = **app;

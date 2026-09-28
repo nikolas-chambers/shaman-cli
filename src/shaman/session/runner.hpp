@@ -10,6 +10,8 @@
 
 #include "shaman/agent/agent.hpp"
 #include "shaman/config/config.hpp"
+#include "shaman/lsp/lsp.hpp"
+#include "shaman/plugin/plugin.hpp"
 #include "shaman/permission/permission.hpp"
 #include "shaman/provider/registry.hpp"
 #include "shaman/session/store.hpp"
@@ -39,7 +41,14 @@ struct Services {
   Store* store;
   permission::Asker asker;
   std::atomic<bool>* cancel = nullptr;
-  bool allow_all = false;  // --yolo
+  bool allow_all = false;          // --yolo
+  lsp::Manager* lsp = nullptr;     // optional: diagnostics after edits, lsp tool
+  plugin::Host* plugins = nullptr; // optional: hooks
+};
+
+struct PromptOptions {
+  std::optional<std::string> model;     // provider/model override for this turn
+  std::vector<std::string> attachments; // extra files/images (--file)
 };
 
 // The agent loop: send the conversation, stream the reply, run requested
@@ -49,8 +58,7 @@ class Runner {
   explicit Runner(Services services);
 
   // Run one user turn. Returns the final assistant text.
-  Result<std::string> prompt(Info& session, const std::string& text, Events& events,
-                             const std::optional<std::string>& model = std::nullopt);
+  Result<std::string> prompt(Info& session, const std::string& text, Events& events, const PromptOptions& opts = {});
 
   // Replace history with a summary to free context.
   Result<void> compact(Info& session, Events& events);

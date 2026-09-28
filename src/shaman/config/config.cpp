@@ -153,9 +153,14 @@ Result<Config> Config::from_json(const Json& j) {
     c.instructions = j.value("instructions", std::vector<std::string>{});
     for (auto& [name, m] : j.value("mcp", Json::object()).items()) {
       McpServerConfig s;
+      s.url = m.value("url", "");
+      s.type = m.value("type", s.url.empty() ? "local" : "remote");
       s.command = m.value("command", std::vector<std::string>{});
       s.environment = m.value("environment", std::map<std::string, std::string>{});
+      s.headers = m.value("headers", std::map<std::string, std::string>{});
+      s.oauth = m.value("oauth", Json(true));
       s.enabled = m.value("enabled", true);
+      s.timeout_ms = m.value("timeout", s.timeout_ms);
       c.mcp[name] = std::move(s);
     }
   } catch (const Json::exception& e) {

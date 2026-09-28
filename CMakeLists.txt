@@ -12,6 +12,7 @@ option(SHAMAN_STATIC "Link statically where possible" OFF)
 # --- dependencies ------------------------------------------------------------
 # libcurl: HTTP + TLS. nlohmann_json: header-only JSON (fetched if not installed).
 find_package(CURL REQUIRED)
+find_package(OpenSSL REQUIRED)  # SHA-256 and randomness for OAuth PKCE
 find_package(nlohmann_json 3.11 QUIET)
 if(NOT nlohmann_json_FOUND)
   include(FetchContent)
@@ -29,11 +30,14 @@ endif()
 
 add_library(shaman_core STATIC ${SHAMAN_SOURCES})
 target_include_directories(shaman_core PUBLIC src)
-target_link_libraries(shaman_core PUBLIC CURL::libcurl nlohmann_json::nlohmann_json)
+target_link_libraries(shaman_core PUBLIC CURL::libcurl OpenSSL::Crypto nlohmann_json::nlohmann_json)
+if(WIN32)
+  target_link_libraries(shaman_core PUBLIC ws2_32)
+endif()
 if(MSVC)
   target_compile_options(shaman_core PRIVATE /W4 /utf-8)
 else()
-  target_compile_options(shaman_core PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(shaman_core PRIVATE -Wall -Wextra -Wpedantic -Wno-missing-field-initializers)
 endif()
 
 # --- executable --------------------------------------------------------------

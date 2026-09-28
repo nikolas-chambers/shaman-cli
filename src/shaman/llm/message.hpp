@@ -22,6 +22,10 @@ struct ToolCallPart {
   std::string name;
   Json input = Json::object();
 };
+struct ImagePart {
+  std::string media_type;  // image/png, image/jpeg, ...
+  std::string data;        // base64
+};
 struct ToolResultPart {
   std::string call_id;
   std::string name;
@@ -29,7 +33,7 @@ struct ToolResultPart {
   bool is_error = false;
 };
 
-using Part = std::variant<TextPart, ReasoningPart, ToolCallPart, ToolResultPart>;
+using Part = std::variant<TextPart, ReasoningPart, ImagePart, ToolCallPart, ToolResultPart>;
 
 struct Message {
   Role role = Role::user;
@@ -37,6 +41,7 @@ struct Message {
 
   std::string text() const;  // concatenated TextParts
   std::vector<ToolCallPart> tool_calls() const;
+  bool has_images() const;
   static Message user(std::string text);
 };
 

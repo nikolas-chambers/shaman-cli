@@ -32,6 +32,10 @@ struct Context {
   std::vector<Todo>* todos = nullptr;
   // Runs a subagent to completion and returns its final answer.
   std::function<Result<std::string>(const std::string& agent, const std::string& prompt)> subagent;
+  // Language-server diagnostics for a file that was just written ("" if none).
+  std::function<std::string(const fs::path&)> diagnostics;
+  // Language-server queries for the lsp tool: op is hover|definition|references|symbols|diagnostics.
+  std::function<Result<std::string>(const std::string& op, const fs::path&, int line, int column)> lsp;
 
   bool permit(std::string permission, std::string subject, std::string title) const;
   // Resolve a user/model supplied path; asks before leaving the project.
@@ -67,8 +71,9 @@ class Registry {
   std::map<std::string, std::unique_ptr<Tool>> tools_;
 };
 
-// read, write, edit, list, glob, grep, bash, webfetch, todowrite, todoread, task
-void register_builtins(Registry& registry);
+// read, write, edit, apply_patch, list, glob, grep, bash, webfetch, websearch,
+// todowrite, todoread, task, skill
+void register_builtins(Registry& registry, const fs::path& root);
 
 // Cap tool output so one call can't blow the context window.
 std::string truncate(std::string text, size_t max_lines = 2000, size_t max_bytes = 50 * 1024);

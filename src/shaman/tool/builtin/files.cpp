@@ -105,7 +105,8 @@ class Write final : public Tool {
       return error("permission denied");
     if (!write_all(*p, in.value("content", ""))) return error("failed to write " + p->string());
     if (ctx.read_files) ctx.read_files->insert(*p);
-    return {std::format("Wrote {} bytes to {}", in.value("content", "").size(), rel(ctx, *p)), false,
+    auto diag = ctx.diagnostics ? ctx.diagnostics(*p) : "";
+    return {std::format("Wrote {} bytes to {}{}", in.value("content", "").size(), rel(ctx, *p), diag), false,
             (exists ? "Write " : "Create ") + rel(ctx, *p)};
   }
 };
@@ -144,7 +145,8 @@ class Edit final : public Tool {
     if (!updated) return error(updated.error().message);
     if (!ctx.permit("edit", p->string(), "Edit " + rel(ctx, *p))) return error("permission denied");
     if (!write_all(*p, *updated)) return error("failed to write " + p->string());
-    return {"Edited " + rel(ctx, *p), false, "Edit " + rel(ctx, *p)};
+    auto diag = ctx.diagnostics ? ctx.diagnostics(*p) : "";
+    return {"Edited " + rel(ctx, *p) + diag, false, "Edit " + rel(ctx, *p)};
   }
 };
 

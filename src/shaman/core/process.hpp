@@ -46,8 +46,12 @@ class Child {
   ~Child();
 
   Result<void> write_line(const std::string& line);
+  Result<void> write(std::string_view data);
   // Returns nullopt on timeout; error on EOF.
   Result<std::optional<std::string>> read_line(std::chrono::milliseconds timeout);
+  // Exactly n bytes (for Content-Length framed protocols such as LSP).
+  Result<std::optional<std::string>> read_exact(size_t n, std::chrono::milliseconds timeout);
+  bool alive() const { return pid_ > 0; }
   void kill();
 
  private:

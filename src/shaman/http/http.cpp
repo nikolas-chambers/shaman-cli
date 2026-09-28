@@ -7,6 +7,7 @@
 #include <mutex>
 
 #include "shaman/core/log.hpp"
+#include "shaman/core/strings.hpp"
 
 namespace shaman::http {
 namespace {
@@ -40,6 +41,21 @@ size_t on_write(char* ptr, size_t size, size_t n, void* user) {
   return len;
 }
 
+size_t on_header(char* ptr, size_t size, size_t n, void* user) {
+  auto* res = static_cast<Response*>(user);
+  std::string_view line(ptr, size * n);
+  auto colon = line.find(':');
+  if (colon != std::string_view::npos) {
+    std::string name(line.substr(0, colon));
+    for (auto& ch : name) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+    auto value = line.substr(colon + 1);
+    while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) value.remove_prefix(1);
+    while (!value.empty() && (value.back() == '\r' || value.back() == '\n')) value.remove_suffix(1);
+    res->headers.emplace_back(std::move(name), std::string(value));
+  }
+  return size * n;
+}
+
 int on_progress(void* user, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
   auto* ctx = static_cast<Ctx*>(user);
   return ctx->req->cancel && ctx->req->cancel->load() ? 1 : 0;
@@ -68,6 +84,8 @@ Result<Response> perform(const Request& req, const std::function<bool(std::strin
   curl_easy_setopt(curl, CURLOPT_USERAGENT, "shaman-cli/0.1");
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, on_write);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &ctx);
+  curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, on_header);
+  curl_easy_setopt(curl, CURLOPT_HEADERDATA, &res);
   curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
   curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, on_progress);
   curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &ctx);
@@ -97,6 +115,21 @@ Result<Response> perform(const Request& req, const std::function<bool(std::strin
 }  // namespace
 
 Result<Response> send(const Request& req) { return perform(req, nullptr); }
+
+std::string Response::header(const std::string& name) const {
+  for (auto it = headers.rbegin(); it != headers.rend(); ++it)  // last wins (after redirects)
+    if (it->first == name) return it->second;
+  return "";
+}
+
+std::string form(const std::vector<std::pair<std::string, std::string>>& fields) {
+  std::string out;
+  for (auto& [k, v] : fields) {
+    if (!out.empty()) out += '&';
+    out += str::url_encode(k) + "=" + str::url_encode(v);
+  }
+  return out;
+}
 
 Result<Response> stream(const Request& req, const std::function<bool(std::string_view)>& on_data) {
   return perform(req, &on_data);

@@ -144,8 +144,9 @@ Child& Child::operator=(Child&& o) noexcept {
 
 Child::~Child() { kill(); }
 
-Result<void> Child::write_line(const std::string& line) {
-  std::string data = line + "\n";
+Result<void> Child::write_line(const std::string& line) { return write(line + "\n"); }
+
+Result<void> Child::write(std::string_view data) {
   size_t off = 0;
   while (off < data.size()) {
     ssize_t n = ::write(in_, data.data() + off, data.size() - off);
@@ -172,6 +173,23 @@ Result<std::optional<std::string>> Child::read_line(milliseconds timeout) {
     if (n <= 0) return fail("child closed its output");
     buf_.append(buf, size_t(n));
   }
+}
+
+Result<std::optional<std::string>> Child::read_exact(size_t n, milliseconds timeout) {
+  auto deadline = steady_clock::now() + timeout;
+  while (buf_.size() < n) {
+    auto left = duration_cast<milliseconds>(deadline - steady_clock::now()).count();
+    if (left <= 0) return std::optional<std::string>{};
+    pollfd pfd{out_, POLLIN, 0};
+    if (poll(&pfd, 1, int(left)) <= 0) continue;
+    char buf[65536];
+    ssize_t got = read(out_, buf, sizeof buf);
+    if (got <= 0) return fail("child closed its output");
+    buf_.append(buf, size_t(got));
+  }
+  std::string out = buf_.substr(0, n);
+  buf_.erase(0, n);
+  return out;
 }
 
 void Child::kill() {

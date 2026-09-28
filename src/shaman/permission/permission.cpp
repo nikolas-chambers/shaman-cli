@@ -18,7 +18,7 @@ Rules Rules::defaults() {
   // pre-approved so exploration doesn't drown you in prompts.
   return from_json({
       {"read", "allow"}, {"list", "allow"}, {"glob", "allow"}, {"grep", "allow"},
-      {"todo", "allow"}, {"task", "allow"},
+      {"todo", "allow"}, {"task", "allow"}, {"skill", "allow"}, {"lsp", "allow"}, {"websearch", "allow"},
       {"edit", "ask"}, {"webfetch", "ask"}, {"external_directory", "ask"}, {"mcp", "ask"},
       {"doom_loop", "ask"},
       {"bash", {
@@ -80,6 +80,11 @@ Json Rules::to_json() const {
 
 bool Gate::check(const Request& req) {
   if (yolo_) return true;
+  if (hook_)
+    if (auto a = hook_(req)) {
+      log::debug(log::Cat::permission, "{} '{}' -> {} (plugin)", req.permission, req.subject, to_string(*a));
+      if (*a != Action::ask) return *a == Action::allow;
+    }
   switch (rules_.evaluate(req.permission, req.subject)) {
     case Action::allow: return true;
     case Action::deny:

@@ -13,9 +13,14 @@ namespace shaman {
 namespace fs = std::filesystem;
 
 struct McpServerConfig {
-  std::vector<std::string> command;
-  std::map<std::string, std::string> environment;
+  std::string type = "local";                     // local (stdio) | remote (streamable HTTP)
+  std::vector<std::string> command;               // local
+  std::map<std::string, std::string> environment;  // local
+  std::string url;                                // remote
+  std::map<std::string, std::string> headers;     // remote, e.g. static Authorization
+  Json oauth = true;                              // remote: false disables; object may set clientId/scope
   bool enabled = true;
+  int timeout_ms = 60'000;
 };
 
 // Effective configuration after merging every layer, lowest priority first:

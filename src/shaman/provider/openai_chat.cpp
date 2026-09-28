@@ -8,12 +8,6 @@ namespace shaman::provider {
 
 using namespace llm;
 
-std::unique_ptr<Provider> make(Api api, Endpoint endpoint) {
-  switch (api) {
-    case Api::openai_chat: return std::make_unique<OpenAIChatProvider>(std::move(endpoint));
-  }
-  return nullptr;
-}
 
 Json openai_chat_body(const ChatRequest& req) {
   Json messages = Json::array();
@@ -21,12 +15,21 @@ Json openai_chat_body(const ChatRequest& req) {
   for (auto& m : req.messages) {
     if (m.role == Role::user) {
       std::string text;
+      Json content = Json::array();
       for (auto& p : m.parts) {
         if (auto* r = std::get_if<ToolResultPart>(&p))
           messages.push_back({{"role", "tool"}, {"tool_call_id", r->call_id}, {"content", r->output}});
         else if (auto* t = std::get_if<TextPart>(&p)) text += t->text;
+        else if (auto* i = std::get_if<ImagePart>(&p))
+          content.push_back({{"type", "image_url"},
+                             {"image_url", {{"url", "data:" + i->media_type + ";base64," + i->data}}}});
       }
-      if (!text.empty()) messages.push_back({{"role", "user"}, {"content", text}});
+      if (!content.empty()) {  // multimodal: text first, then images
+        if (!text.empty()) content.insert(content.begin(), Json{{"type", "text"}, {"text", text}});
+        messages.push_back({{"role", "user"}, {"content", content}});
+      } else if (!text.empty()) {
+        messages.push_back({{"role", "user"}, {"content", text}});
+      }
       continue;
     }
     Json msg = {{"role", "assistant"}};

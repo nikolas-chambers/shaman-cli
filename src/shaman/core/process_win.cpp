@@ -115,7 +115,9 @@ Child& Child::operator=(Child&& o) noexcept {
 }
 Child::~Child() = default;
 Result<void> Child::write_line(const std::string&) { return fail("unsupported"); }
+Result<void> Child::write(std::string_view) { return fail("unsupported"); }
 Result<std::optional<std::string>> Child::read_line(milliseconds) { return fail("unsupported"); }
+Result<std::optional<std::string>> Child::read_exact(size_t, milliseconds) { return fail("unsupported"); }
 void Child::kill() {}
 
 }  // namespace shaman::process

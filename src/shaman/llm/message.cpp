@@ -19,6 +19,12 @@ std::vector<ToolCallPart> Message::tool_calls() const {
   return out;
 }
 
+bool Message::has_images() const {
+  for (auto& p : parts)
+    if (std::holds_alternative<ImagePart>(p)) return true;
+  return false;
+}
+
 Message Message::user(std::string text) { return {Role::user, {TextPart{std::move(text)}}}; }
 
 Json to_json(const Message& m) {
@@ -27,6 +33,7 @@ Json to_json(const Message& m) {
     parts.push_back(std::visit(overloaded{
         [](const TextPart& t) { return Json{{"type", "text"}, {"text", t.text}}; },
         [](const ReasoningPart& r) { return Json{{"type", "reasoning"}, {"text", r.text}}; },
+        [](const ImagePart& i) { return Json{{"type", "image"}, {"media_type", i.media_type}, {"data", i.data}}; },
         [](const ToolCallPart& c) {
           return Json{{"type", "tool_call"}, {"id", c.id}, {"name", c.name}, {"input", c.input}};
         },
@@ -46,6 +53,7 @@ Message message_from_json(const Json& j) {
     auto type = p.value("type", "");
     if (type == "text") m.parts.push_back(TextPart{p.value("text", "")});
     else if (type == "reasoning") m.parts.push_back(ReasoningPart{p.value("text", "")});
+    else if (type == "image") m.parts.push_back(ImagePart{p.value("media_type", ""), p.value("data", "")});
     else if (type == "tool_call")
       m.parts.push_back(ToolCallPart{p.value("id", ""), p.value("name", ""), p.value("input", Json::object())});
     else if (type == "tool_result")

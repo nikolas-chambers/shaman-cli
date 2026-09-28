@@ -58,7 +58,7 @@ TEST(builtin_tools_roundtrip) {
   std::ofstream(root / "src" / "a.cpp") << "int main() {\n  return 0;\n}\n";
 
   tool::Registry reg;
-  tool::register_builtins(reg);
+  tool::register_builtins(reg, root);
   permission::Gate gate(permission::Rules::from_json({{"*", "allow"}}), nullptr);
   std::set<fs::path> read;
   tool::Context ctx{root, "ses_test", &gate, nullptr, &read, nullptr, nullptr};

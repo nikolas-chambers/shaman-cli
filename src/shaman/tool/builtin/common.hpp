@@ -46,5 +46,9 @@ std::unique_ptr<Tool> make_webfetch();
 std::unique_ptr<Tool> make_todowrite();
 std::unique_ptr<Tool> make_todoread();
 std::unique_ptr<Tool> make_task();
+std::unique_ptr<Tool> make_apply_patch();
+std::unique_ptr<Tool> make_websearch();
+std::unique_ptr<Tool> make_skill(const fs::path& root);
+std::unique_ptr<Tool> make_lsp();
 
 }  // namespace shaman::tool::detail

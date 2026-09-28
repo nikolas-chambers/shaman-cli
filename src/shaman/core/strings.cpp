@@ -127,6 +127,82 @@ bool glob(std::string_view pattern, std::string_view path) {
   return std::regex_match(std::string(path), std::regex(glob_to_regex(p)));
 }
 
+std::string url_encode(std::string_view s) {
+  std::string out;
+  for (unsigned char c : s) {
+    if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') out += char(c);
+    else out += std::format("%{:02X}", c);
+  }
+  return out;
+}
+
+std::string url_decode(std::string_view s) {
+  std::string out;
+  for (size_t i = 0; i < s.size(); ++i) {
+    if (s[i] == '%' && i + 2 < s.size() && std::isxdigit(static_cast<unsigned char>(s[i + 1])) &&
+        std::isxdigit(static_cast<unsigned char>(s[i + 2]))) {
+      out += char(std::stoi(std::string(s.substr(i + 1, 2)), nullptr, 16));
+      i += 2;
+    } else {
+      out += s[i] == '+' ? ' ' : s[i];
+    }
+  }
+  return out;
+}
+
+std::string base64_encode(std::string_view data) {
+  static constexpr char tbl[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::string out;
+  out.reserve((data.size() + 2) / 3 * 4);
+  size_t i = 0;
+  for (; i + 2 < data.size(); i += 3) {
+    uint32_t n = (uint8_t(data[i]) << 16) | (uint8_t(data[i + 1]) << 8) | uint8_t(data[i + 2]);
+    out += tbl[n >> 18], out += tbl[(n >> 12) & 63], out += tbl[(n >> 6) & 63], out += tbl[n & 63];
+  }
+  if (i + 1 == data.size()) {
+    uint32_t n = uint8_t(data[i]) << 16;
+    out += tbl[n >> 18], out += tbl[(n >> 12) & 63], out += "==";
+  } else if (i + 2 == data.size()) {
+    uint32_t n = (uint8_t(data[i]) << 16) | (uint8_t(data[i + 1]) << 8);
+    out += tbl[n >> 18], out += tbl[(n >> 12) & 63], out += tbl[(n >> 6) & 63], out += '=';
+  }
+  return out;
+}
+
+std::string html_unescape(std::string s) {
+  for (auto [from, to] : {std::pair{"&lt;", "<"}, {"&gt;", ">"}, {"&quot;", "\""}, {"&#39;", "'"}, {"&#x27;", "'"},
+                          {"&nbsp;", " "}, {"&amp;", "&"}})
+    s = replace_all(std::move(s), from, to);
+  static const std::regex num("&#([0-9]+);");
+  std::string out;
+  auto begin = std::sregex_iterator(s.begin(), s.end(), num);
+  size_t last = 0;
+  for (auto it = begin; it != std::sregex_iterator(); ++it) {
+    out += s.substr(last, it->position() - last);
+    int code = std::stoi((*it)[1]);
+    out += code < 128 ? std::string(1, char(code)) : it->str();
+    last = it->position() + it->length();
+  }
+  return out + s.substr(last);
+}
+
+std::pair<std::vector<std::pair<std::string, std::string>>, std::string> front_matter(std::string_view text) {
+  std::vector<std::pair<std::string, std::string>> fields;
+  if (!text.starts_with("---")) return {fields, std::string(text)};
+  auto end = text.find("\n---", 3);
+  if (end == std::string_view::npos) return {fields, std::string(text)};
+  for (auto& line : lines(text.substr(3, end - 3))) {
+    auto colon = line.find(':');
+    if (colon == std::string::npos) continue;
+    auto value = trim(line.substr(colon + 1));
+    if (value.size() >= 2 && (value.front() == '"' || value.front() == '\'') && value.back() == value.front())
+      value = value.substr(1, value.size() - 2);
+    fields.emplace_back(trim(line.substr(0, colon)), value);
+  }
+  auto body_start = text.find('\n', end + 1);
+  return {fields, body_start == std::string_view::npos ? "" : std::string(text.substr(body_start + 1))};
+}
+
 std::string hash_hex(std::string_view s) {
   uint64_t h = 1469598103934665603ULL;
   for (unsigned char c : s) {

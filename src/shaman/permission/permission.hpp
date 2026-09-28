@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -53,15 +54,20 @@ enum class Reply { once, always, reject };
 using Asker = std::function<Reply(const Request&)>;
 
 // Evaluates rules and consults the user for "ask", remembering "always".
+// A hook consulted before rules (plugins); nullopt defers to the rules.
+using Hook = std::function<std::optional<Action>(const Request&)>;
+
 class Gate {
  public:
-  Gate(Rules rules, Asker asker) : rules_(std::move(rules)), asker_(std::move(asker)) {}
+  Gate(Rules rules, Asker asker, Hook hook = nullptr)
+      : rules_(std::move(rules)), asker_(std::move(asker)), hook_(std::move(hook)) {}
   bool check(const Request& req);
   void allow_all() { yolo_ = true; }
 
  private:
   Rules rules_;
   Asker asker_;
+  Hook hook_;
   std::set<std::pair<std::string, std::string>> always_;
   bool yolo_ = false;
 };

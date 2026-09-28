@@ -165,11 +165,13 @@ std::unique_ptr<Tool> make_task() { return std::make_unique<Task>(); }
 
 namespace shaman::tool {
 
-void register_builtins(Registry& r) {
+void register_builtins(Registry& r, const fs::path& root) {
   using namespace detail;
-  for (auto make : {make_read, make_write, make_edit, make_list, make_glob, make_grep, make_bash,
-                    make_webfetch, make_todowrite, make_todoread, make_task})
+  for (auto make : {make_read, make_write, make_edit, make_apply_patch, make_list, make_glob, make_grep, make_bash,
+                    make_webfetch, make_websearch, make_todowrite, make_todoread, make_task})
     r.add(make());
+  r.add(make_skill(root));
+  r.add(make_lsp());
 }
 
 }  // namespace shaman::tool

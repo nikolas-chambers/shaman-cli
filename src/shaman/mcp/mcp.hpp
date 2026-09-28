@@ -10,9 +10,18 @@
 
 namespace shaman::mcp {
 
-// Minimal Model Context Protocol client over stdio (JSON-RPC, one message
-// per line). Each server's tools are registered as "<server>_<tool>" and go
-// through the "mcp" permission.
+// How JSON-RPC messages reach a server.
+class Transport {
+ public:
+  virtual ~Transport() = default;
+  virtual Result<Json> request(const Json& msg, std::chrono::milliseconds timeout) = 0;  // returns the response
+  virtual void notify(const Json& msg) = 0;
+};
+
+// Model Context Protocol client. Local servers run as child processes (stdio,
+// one JSON message per line); remote servers use Streamable HTTP, with OAuth
+// when the server asks for it (`shaman mcp auth <name>`). Each server's tools
+// are registered as "<server>_<tool>" behind the "mcp" permission.
 class Client {
  public:
   static Result<std::shared_ptr<Client>> connect(const std::string& name, const McpServerConfig& cfg);
@@ -21,14 +30,20 @@ class Client {
   const std::string& name() const { return name_; }
 
  private:
-  Client(std::string name, process::Child child) : name_(std::move(name)), child_(std::move(child)) {}
+  Client(std::string name, std::unique_ptr<Transport> t, std::chrono::milliseconds timeout)
+      : name_(std::move(name)), transport_(std::move(t)), timeout_(timeout) {}
   std::string name_;
-  process::Child child_;
+  std::unique_ptr<Transport> transport_;
+  std::chrono::milliseconds timeout_;
   int next_id_ = 1;
+  std::mutex mu_;
 };
 
 // Connect every enabled server in config and register its tools. Failures
 // are logged and skipped so one broken server never blocks startup.
 std::vector<std::shared_ptr<Client>> load(const Config& config, tool::Registry& tools);
+
+// Serve shaman's own tools over MCP stdio (`shaman mcp serve`).
+int serve(const Config& config, const std::filesystem::path& root, tool::Registry& tools, bool allow_all);
 
 }  // namespace shaman::mcp

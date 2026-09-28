@@ -23,7 +23,12 @@ struct Request {
 struct Response {
   long status = 0;
   std::string body;
+  std::vector<std::pair<std::string, std::string>> headers;  // names lower-cased
+  std::string header(const std::string& name) const;
 };
+
+// application/x-www-form-urlencoded body from key/value pairs.
+std::string form(const std::vector<std::pair<std::string, std::string>>& fields);
 
 // Buffered request.
 Result<Response> send(const Request& req);

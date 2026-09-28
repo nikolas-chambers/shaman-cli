@@ -1,5 +1,7 @@
 #pragma once
 
+#include <chrono>
+#include <mutex>
 #include <memory>
 #include <string>
 #include <vector>
@@ -21,11 +23,11 @@ struct Resolved {
 
 struct KeyInfo {
   std::string key;
-  std::string source;  // "env NAME", "auth", "config", "public", "none (local)", ""
+  std::string source;  // "env NAME", "auth", "config", "none (local)", ""
 };
 
 // Built-in providers merged with config `provider` entries, plus key lookup:
-// config apiKey > saved auth > environment > the provider's public key.
+// config apiKey > saved auth > environment.
 class Registry {
  public:
   Registry(const Config& config, const auth::Store& auth);
@@ -35,7 +37,6 @@ class Registry {
 
   KeyInfo key(const ProviderInfo& p) const;
   bool usable(const ProviderInfo& p) const;
-  bool free_only(const ProviderInfo& p) const;  // only the public key is available
   std::vector<ModelInfo> visible_models(const ProviderInfo& p) const;
 
   // "provider/model", or a bare model id when unambiguous.
@@ -51,6 +52,10 @@ class Registry {
   const auth::Store& auth_;
   std::vector<ProviderInfo> providers_;
   std::map<std::string, std::string> config_keys_;
+  // apiKeyCommand output, reused for a while (cloud tokens typically last an hour)
+  struct CachedKey { std::string key; std::chrono::steady_clock::time_point at; };
+  mutable std::map<std::string, CachedKey> command_keys_;
+  mutable std::mutex command_mu_;
 };
 
 }  // namespace shaman::provider

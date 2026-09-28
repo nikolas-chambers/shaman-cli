@@ -39,8 +39,13 @@ void notify(const NotifySettings& s, const std::string& title, const std::string
         "$n = New-Object System.Windows.Forms.NotifyIcon; $n.Icon = [System.Drawing.SystemIcons]::Information; $n.Visible = $true; "
         "$n.ShowBalloonTip(5000, '" + str::replace_all(title, "'", "") + "', '" + str::replace_all(body, "'", "") + "', 'Info')\"";
 #else
-  if (!process::which("notify-send")) return;
-  cmd = "notify-send -a shaman " + q(title) + " " + q(body);
+  if (process::termux()) {  // needs the Termux:API app and `pkg install termux-api`
+    if (!process::which("termux-notification")) return;
+    cmd = "termux-notification --group shaman -t " + q(title) + " -c " + q(body);
+  } else {
+    if (!process::which("notify-send")) return;
+    cmd = "notify-send -a shaman " + q(title) + " " + q(body);
+  }
 #endif
   std::thread([cmd] { process::shell(cmd, {.timeout = std::chrono::seconds(10)}); }).detach();
 }

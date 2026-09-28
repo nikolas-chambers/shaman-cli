@@ -43,7 +43,11 @@ TEST(jsonc) {
 }
 
 TEST(config_substitution) {
+#ifdef _WIN32
+  _putenv_s("SHAMAN_TEST_VAR", "hello");
+#else
   setenv("SHAMAN_TEST_VAR", "hello", 1);
+#endif
   Json j = {{"a", "{env:SHAMAN_TEST_VAR} world"}, {"nested", {{"b", "{env:SHAMAN_TEST_UNSET}"}}}};
   substitute(j, "/");
   CHECK_EQ(j["a"].get<std::string>(), std::string("hello world"));

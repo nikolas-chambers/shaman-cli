@@ -22,9 +22,9 @@
 <ol><li><code>~/.config/shaman/shaman.json(c)</code> (Windows: <code>%APPDATA%\shaman</code>)</li><li><code>shaman.json(c)</code> or <code>.shaman/shaman.json(c)</code>, from the project root down to the current directory</li><li><code>$SHAMAN_CONFIG</code> (a path), then <code>$SHAMAN_CONFIG_CONTENT</code> (inline JSON)</li></ol>
 <p>JSONC is accepted (comments, trailing commas). Any string may use <code>{env:NAME}</code> or <code>{file:path}</code>. <code>shaman debug config</code> prints the sources and the merged result.</p>
 <pre><code class="language-jsonc">{
-  &quot;model&quot;: &quot;opencode/big-pickle&quot;,           // provider/model; default: best free model ($SHAMAN_MODEL also works)
+  &quot;model&quot;: &quot;opencode/big-pickle&quot;,           // provider/model; default: picked from providers with a key ($SHAMAN_MODEL also works)
   &quot;default_agent&quot;: &quot;build&quot;,
-  &quot;free_fallback&quot;: true,                    // rate-limited free model -&gt; next free model
+  &quot;free_fallback&quot;: true,                    // rate-limited no-cost model -&gt; the next one
   &quot;snapshot&quot;: true,                         // git-backed /undo of file changes
   &quot;instructions&quot;: [&quot;docs/CONVENTIONS.md&quot;],  // SHAMAN.md or AGENTS.md load automatically
 
@@ -60,6 +60,7 @@
   &quot;notify&quot;: { &quot;desktop&quot;: true, &quot;sound&quot;: true, &quot;min_seconds&quot;: 20 },   // or false; turn done / permission / question
   &quot;redact_secrets&quot;: true,          // mask API keys, tokens and private keys in tool output before the model sees it
   &quot;goal_max_rounds&quot;: 5,            // /goal: how many self-checks before stopping
+  &quot;update_check&quot;: true,            // tell the TUI and web UI about new releases (daily; SHAMAN_NO_UPDATE_CHECK=1 also stops it)
   &quot;share&quot;: { &quot;url&quot;: &quot;https://paste.example.com/api&quot;, &quot;token&quot;: &quot;{env:PASTE_TOKEN}&quot; }   // optional upload for `shaman share`
 }</code></pre>
 <p>Markdown agents (<code>.shaman/agents/&lt;name&gt;.md</code>) and commands (<code>.shaman/commands/&lt;name&gt;.md</code>) take front matter:</p>
@@ -71,8 +72,70 @@ tools: read, grep, glob, bash
 ---
 You are a strict reviewer. Report bugs only, with path:line.</code></pre>
 <p>Command templates support <code>$ARGUMENTS</code>, <code>$1</code>..<code>$9</code>, <code></code> !<code>shell</code> <code></code> and <code>@file</code>.</p>
+<p>Permission modes sit on top of the rules: <code>default</code> asks as configured, <code>acceptEdits</code> allows file edits inside the project without asking, <code>plan</code> switches to the read-only plan agent (which ends with <code>plan_exit</code>, asking you to approve the plan before it switches to <code>build</code>), and <code>yolo</code> allows every &quot;ask&quot;. Explicit <code>deny</code> rules hold in every mode. Set it with <code>--mode</code>, <code>/mode</code>, <code>Shift-Tab</code> in the terminal UI, the mode menu in the web UI, or <code>&quot;mode&quot;</code> in an API message.</p>
 <p>Environment variables that change behaviour: <code>TAVILY_API_KEY</code>, <code>EXA_API_KEY</code> or <code>BRAVE_SEARCH_API_KEY</code> switch <code>websearch</code> to that service (default DuckDuckGo). Shell commands always run with <code>CI=true</code>, <code>GIT_TERMINAL_PROMPT=0</code>, <code>PAGER=cat</code> and similar set (unless you set them yourself), so tools fail fast instead of waiting for input.</p>
 <p>Project memory: the <code>memory</code> tool writes <code>.shaman/MEMORY.md</code>, which is added to every session&#x27;s system prompt. Edit or delete it by hand any time.</p>
+<h2 id="mcp-permissions">MCP permissions<a class="anchor" href="#mcp-permissions">#</a></h2>
+<p>MCP tools ask first (permission <code>mcp</code>, subject <code>&lt;server&gt;_&lt;tool&gt;</code>). Allow a trusted server, or tune single tools, right where the server is configured; general <code>permission</code> rules still win, and <code>deny</code> holds even with <code>--yolo</code>:</p>
+<pre><code class="language-jsonc">&quot;mcp&quot;: {
+  &quot;docs&quot;:   { &quot;url&quot;: &quot;https://example.com/mcp&quot;, &quot;permission&quot;: &quot;allow&quot; },
+  &quot;github&quot;: { &quot;command&quot;: [&quot;github-mcp&quot;], &quot;permission&quot;: { &quot;*&quot;: &quot;allow&quot;, &quot;delete_repository&quot;: &quot;deny&quot;, &quot;merge_pull_request&quot;: &quot;ask&quot; } }
+},
+&quot;permission&quot;: { &quot;mcp&quot;: { &quot;fs_write_*&quot;: &quot;ask&quot; } }</code></pre>
+<h2 id="keys">Keys<a class="anchor" href="#keys">#</a></h2>
+<p>Where a provider&#x27;s key comes from, first match wins: <code>apiKey</code> in config (or <code>[keys]</code> in <code>shaman.ini</code>), a key saved with <code>shaman auth login</code>, the provider&#x27;s environment variable, then <code>apiKeyCommand</code>. Saved keys live in the OS keychain when there is one: macOS Keychain, Windows Credential Manager, or the Secret Service on Linux (GNOME Keyring, KWallet; needs <code>secret-tool</code> and a desktop session). <code>auth.json</code> then only notes that a key exists. Without a keychain, in portable mode, or with <code>SHAMAN_NO_KEYCHAIN=1</code>, the key is stored in <code>auth.json</code> (readable only by you). <code>shaman auth secure</code> moves keys from <code>auth.json</code> into the keychain; <code>shaman auth list</code> shows where each key comes from; <code>shaman doctor</code> shows the storage in use.</p>
+<h2 id="terminal-ui">Terminal UI<a class="anchor" href="#terminal-ui">#</a></h2>
+<pre><code class="language-jsonc">&quot;tui&quot;: {
+  &quot;theme&quot;: &quot;halloween&quot;,      // shaman, dark, light, halloween, dracula, nord, gruvbox, solarized, monokai, sunset, ocean, forest, mono
+  &quot;accent&quot;: &quot;#ff8c1a&quot;,       // optional colour overrides: accent, code, heading, add, del, warn, info
+  &quot;mouse&quot;: true,             // wheel scrolling (hold Shift to select text); or /mouse
+  &quot;statusline&quot;: &quot;~/.config/shaman/status.sh&quot;,   // gets the session as JSON on stdin; its first line shows bottom right
+  &quot;keybinds&quot;: { &quot;ctrl+g&quot;: &quot;/sessions&quot;, &quot;ctrl+t&quot;: &quot;/theme&quot;, &quot;ctrl+y&quot;: &quot;copy&quot; }  // a slash command or palette, editor,
+                             // details, paste, copy, mode, clear, new
+}</code></pre>
+<p>In the input: <code>!command</code> runs a shell command in the project (without asking, since you typed it) and sends its output with your next message; <code># note</code> appends to <code>.shaman/MEMORY.md</code>; Ctrl-V (or <code>/paste</code>) attaches an image from the clipboard; <code>/copy</code> copies the last reply (<code>/copy code</code> its last code block); <code>/context</code> shows what the context window is spent on; <code>/theme</code> switches theme; <code>/effort</code> sets reasoning effort; Shift-Tab cycles permission modes.</p>
+<h2 id="providers-and-models">Providers and models<a class="anchor" href="#providers-and-models">#</a></h2>
+<p>Any provider, built in or your own, takes these options; a model entry for a known model changes only the fields you give:</p>
+<pre><code class="language-jsonc">&quot;provider&quot;: {
+  &quot;openai&quot;: {
+    &quot;models&quot;: {
+      &quot;gpt-5.5&quot;: { &quot;reasoningEffort&quot;: &quot;high&quot;, &quot;context&quot;: { &quot;limit&quot;: 64000, &quot;compactAt&quot;: 0.8 } }
+    }
+  },
+  &quot;google&quot;: {
+    &quot;models&quot;: { &quot;gemini-2.5-flash&quot;: { &quot;temperature&quot;: 0.2, &quot;tools&quot;: { &quot;websearch&quot;: false, &quot;webfetch&quot;: false } } }
+  },
+  &quot;mylab&quot;: {
+    &quot;api&quot;: &quot;openai&quot;,                 // openai (chat completions) | responses (OpenAI Responses) | anthropic
+    &quot;baseURL&quot;: &quot;http://gpu-box:8000/v1&quot;,
+    &quot;apiKeyCommand&quot;: &quot;pass show lab/key&quot;,   // or &quot;apiKey&quot;; the command&#x27;s output is reused for 45 minutes
+    &quot;authHeader&quot;: &quot;api-key&quot;,         // send the key in this header instead of Authorization: Bearer
+    &quot;headers&quot;: { &quot;X-Team&quot;: &quot;core&quot; },
+    &quot;body&quot;: { &quot;top_p&quot;: 0.9 },        // extra request fields for every model here
+    &quot;models&quot;: {
+      &quot;qwen-coder&quot;: { &quot;name&quot;: &quot;Qwen Coder&quot;, &quot;output&quot;: 8192, &quot;vision&quot;: false,
+                      &quot;cost&quot;: { &quot;input&quot;: 0, &quot;output&quot;: 0 }, &quot;body&quot;: { &quot;repetition_penalty&quot;: 1.05 },
+                      &quot;context&quot;: { &quot;window&quot;: 32768, &quot;maxToolOutput&quot;: 12000, &quot;keepToolOutputs&quot;: 3 } }
+    }
+  }
+}</code></pre>
+<table><thead><tr><th>Model option</th><th></th></tr></thead><tbody><tr><td><code>reasoningEffort</code></td><td><code>low</code>, <code>medium</code> or <code>high</code> for models that think (OpenAI <code>reasoning_effort</code> or Responses <code>reasoning</code>, Anthropic extended thinking, Gemini). Change it live with <code>/effort</code> or <code>--effort</code> (<code>off</code> disables thinking)</td></tr><tr><td><code>temperature</code></td><td>default temperature (an agent&#x27;s own setting wins)</td></tr><tr><td><code>body</code></td><td>extra JSON merged into each request, for provider-specific knobs</td></tr><tr><td><code>tools</code></td><td>turn tools off for this model, e.g. <code>{&quot;*&quot;: false, &quot;read&quot;: true, &quot;edit&quot;: true, &quot;bash&quot;: true}</code> for a small model</td></tr><tr><td><code>context</code></td><td>a number (window size) or an object: <code>window</code>, <code>limit</code> (use at most this many tokens), <code>pruneAt</code> (default 0.6: stub out old tool outputs above this share), <code>compactAt</code> (0.85: summarise), <code>keepToolOutputs</code> (6), <code>maxToolOutput</code> (characters per tool result)</td></tr></tbody></table>
+<p>A top-level <code>&quot;context&quot;: {...}</code> sets the same knobs for every model, and <code>&quot;reasoning_effort&quot;</code> a default effort. Thinking is kept across tool calls where the API needs it: signed Anthropic thinking blocks and encrypted Responses reasoning items are sent back as they came.</p>
+<p>Cloud platforms appear once their environment is set: Azure OpenAI (<code>AZURE_OPENAI_ENDPOINT</code>, <code>AZURE_OPENAI_API_KEY</code>; model ids are deployment names), Google Vertex AI (<code>GOOGLE_CLOUD_PROJECT</code>, optional <code>GOOGLE_CLOUD_LOCATION</code>, token from <code>gcloud auth print-access-token</code>) and Amazon Bedrock (<code>AWS_BEARER_TOKEN_BEDROCK</code>, <code>AWS_REGION</code>). OpenAI itself uses the Responses API.</p>
+<h2 id="sandbox">Sandbox<a class="anchor" href="#sandbox">#</a></h2>
+<p><code>&quot;sandbox&quot;: true</code> runs every <code>bash</code> command in an OS sandbox: it can read anything but write only inside the project and the temp directory. <code>{&quot;network&quot;: false}</code> also cuts network access; <code>{&quot;writable&quot;: [&quot;~/.cache&quot;]}</code> adds paths. Linux uses <a href="https://github.com/containers/bubblewrap">bubblewrap</a> (<code>bwrap</code>), macOS <code>sandbox-exec</code>; Windows has no sandbox yet. If it is on but unavailable, commands are refused, never run unsandboxed. Permission rules still apply on top. <code>shaman doctor</code> shows the status.</p>
+<h2 id="hooks">Hooks<a class="anchor" href="#hooks">#</a></h2>
+<p>Shell commands that run at points in the agent loop, for rules you want enforced every time rather than hoped for:</p>
+<pre><code class="language-jsonc">&quot;hooks&quot;: {
+  &quot;PreToolUse&quot;:       [{ &quot;matcher&quot;: &quot;bash&quot;, &quot;command&quot;: &quot;./scripts/guard.sh&quot; }],
+  &quot;PostToolUse&quot;:      [{ &quot;matcher&quot;: &quot;edit|write|multiedit&quot;, &quot;command&quot;: &quot;npx eslint --fix \&quot;$SHAMAN_FILE\&quot;&quot;, &quot;timeout&quot;: 60 }],
+  &quot;UserPromptSubmit&quot;: [{ &quot;command&quot;: &quot;git status --short&quot; }],
+  &quot;SessionStart&quot;:     [{ &quot;command&quot;: &quot;cat docs/STATUS.md&quot; }],
+  &quot;Stop&quot;:             [{ &quot;command&quot;: &quot;make -s test &gt;/dev/null 2&gt;&amp;1 || { echo &#x27;tests are failing&#x27; &gt;&amp;2; exit 2; }&quot; }],
+  &quot;Notification&quot;:     [{ &quot;command&quot;: &quot;notify-send shaman \&quot;$(jq -r .message)\&quot;&quot; }]
+}</code></pre>
+<table><thead><tr><th>Event</th><th>When</th><th>Exit 2 (or <code>{&quot;decision&quot;:&quot;block&quot;,&quot;reason&quot;:...}</code> on stdout)</th></tr></thead><tbody><tr><td><code>PreToolUse</code></td><td>before a tool runs</td><td>the call is refused; the reason goes to the model</td></tr><tr><td><code>PostToolUse</code></td><td>after a tool runs</td><td>the reason is appended to the tool output for the model</td></tr><tr><td><code>UserPromptSubmit</code></td><td>before your message is sent</td><td>the message is rejected. On exit 0, stdout is added as context</td></tr><tr><td><code>SessionStart</code></td><td>first message of a session</td><td>stdout is added as context</td></tr><tr><td><code>Stop</code></td><td>when the agent is about to finish</td><td>it keeps working with the reason as feedback (at most 3 times per turn)</td></tr><tr><td><code>Notification</code></td><td>when shaman needs your permission</td><td>(ignored)</td></tr></tbody></table>
+<p><code>matcher</code> is a case-insensitive regex over the tool name (empty or <code>*</code> matches all). Each command runs through the shell in the project root with the event as JSON on stdin (<code>hook_event_name</code>, <code>session_id</code>, <code>cwd</code>, <code>tool_name</code>, <code>tool_input</code>, <code>tool_response</code>, <code>prompt</code>, <code>last_assistant_message</code>) and <code>SHAMAN_PROJECT_DIR</code>, <code>SHAMAN_SESSION_ID</code>, <code>SHAMAN_HOOK_EVENT</code>, <code>SHAMAN_TOOL</code> and <code>SHAMAN_FILE</code> set. Other exit codes are reported and ignored. The nested <code>{&quot;matcher&quot;, &quot;hooks&quot;: [{&quot;type&quot;: &quot;command&quot;, &quot;command&quot;}]}</code> form is accepted too. <code>shaman --debug=tool</code> logs every hook run; traces record stdin, stdout, stderr and exit codes.</p>
 <footer>shaman 0.1.0 &middot; <a href="https://github.com/nikolas-chambers/shaman-cli">source</a></footer>
 </main>
 </body>

@@ -15,6 +15,9 @@
 #include "shaman/github/github.hpp"
 #include "shaman/mcp/mcp.hpp"
 #include "shaman/server/server.hpp"
+#include "shaman/tui/markdown.hpp"
+#include "shaman/mcp/oauth.hpp"
+#include "shaman/server/pair.hpp"
 #include "shaman/tui/app.hpp"
 #include "shaman/update/update.hpp"
 #include "shaman/version.hpp"
@@ -80,6 +83,8 @@ options:
       --attach <url>             run against a `shaman serve` instance
       --goal <text>              keep working until this goal is verified done
       --format <text|json>       output format for run
+      --mode <m>                 permission mode: default, acceptEdits, plan, yolo
+      --effort <e>               reasoning effort: low, medium, high, off
       --yolo                     auto-approve every "ask" (explicit denies still apply)
       --reasoning                show model reasoning when available
       --plain                    line-based interface instead of full-screen
@@ -87,6 +92,7 @@ options:
       --port <n>                 serve/web port
       --host <addr>              serve/web address (default 127.0.0.1)
       --token <t>                require this bearer token for the API
+      --pair[=app]               serve on the local network with a token and show a QR code for your phone
       --debug[=categories]       debug log: all, or any of config provider http sse
                                  tool permission session agent mcp
       --log-file <path>          write the debug log to a file
@@ -97,15 +103,7 @@ environment:
   OPENCODE_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, ...
 )";
 
-void open_browser(const std::string& url) {
-#if defined(__APPLE__)
-  process::shell("open '" + url + "'", {.timeout = std::chrono::seconds(5)});
-#elif defined(_WIN32)
-  process::shell("start \"\" \"" + url + "\"", {.timeout = std::chrono::seconds(5)});
-#else
-  process::shell("xdg-open '" + url + "' >/dev/null 2>&1 &", {.timeout = std::chrono::seconds(5)});
-#endif
-}
+void open_browser(const std::string& url) { process::open_url(url); }
 
 }  // namespace
 
@@ -117,9 +115,15 @@ Options options_from(const Args& args) {
   o.command = args.get("command");
   o.attach = args.get("attach");
   o.goal = args.get("goal");
+  o.effort = args.get("effort");
   if (auto f = args.get("file")) o.files = str::split(*f, ',');
   o.cont = args.has("continue");
   o.yolo = args.has("yolo");
+  if (auto m = args.get("mode")) {  // --mode default|acceptEdits|plan|yolo
+    if (*m == "plan") o.agent = "plan";
+    else if (auto pm = permission::parse_mode(*m)) o.yolo = o.yolo || *pm == permission::Mode::yolo, o.accept_edits = *pm == permission::Mode::accept_edits;
+    else std::cerr << "warning: unknown --mode " << *m << " (default, acceptEdits, plan, yolo)\n";
+  }
   o.reasoning = args.has("reasoning");
   o.json = args.get("format").value_or("text") == "json";
   o.plain = args.has("plain");
@@ -129,7 +133,7 @@ Options options_from(const Args& args) {
 int main(int argc, char** argv) {
   auto args = parse_args(argc, argv,
                          {"continue", "yolo", "reasoning", "no-mcp", "help", "version", "refresh", "debug", "plain",
-                          "all", "check", "dry-run", "verbose"},
+                          "all", "check", "dry-run", "verbose", "pair"},
                          {{"m", "model"}, {"a", "agent"}, {"c", "continue"}, {"s", "session"}, {"h", "help"},
                           {"v", "version"}, {"f", "file"}, {"o", "output"}});
 
@@ -177,7 +181,7 @@ int main(int argc, char** argv) {
       return cmd_repl(a, o);
     }
     std::signal(SIGINT, SIG_IGN);  // the TUI handles Ctrl-C itself
-    return tui::run(a, {o.model, o.agent, o.session, first, o.cont, o.yolo});
+    return tui::run(a, {o.model, o.agent, o.session, first, o.cont, o.yolo, o.accept_edits, o.effort.value_or("")});
   }
   if (cmd == "run") return cmd_run(a, o, str::join({pos.begin() + 1, pos.end()}, " "));
   if (cmd == "serve" || cmd == "web") {
@@ -186,7 +190,24 @@ int main(int argc, char** argv) {
     so.port = std::stoi(args.get("port").value_or(cmd == "web" ? "0" : "4096"));
     so.token = args.get("token").value_or("");
     so.allow_all = o.yolo;
-    so.on_listen = [web = cmd == "web"](const std::string& url) {
+    auto pair = args.get("pair");  // --pair: reachable on the LAN with a token, and a QR code to scan
+    if (pair) {
+      if (!args.get("host")) so.host = "0.0.0.0";
+      if (so.token.empty()) so.token = mcp::oauth::random_token(18);
+    }
+    so.on_listen = [web = cmd == "web", pair, token = so.token, root = a.root](const std::string& url) {
+      if (pair) {
+        auto port = url.substr(url.rfind(':') + 1);
+        auto base = "http://" + server::lan_ip() + ":" + port;
+        auto link = *pair == "app" ? "shaman://connect?url=" + str::url_encode(base) + "&token=" + token +
+                                         "&name=" + str::url_encode(root.filename().string())
+                                   : base + "/?token=" + token;
+        std::cout << "\nScan with your phone's camera (same Wi-Fi):\n\n" << server::qr_terminal(link, tui::unicode())
+                  << "\n  " << link << "\n\n"
+                  << (*pair == "app" ? "Opens the Shaman app. " : "Opens the web UI; the Shaman app can also paste this link. ")
+                  << "Anyone with this link can use shaman here: keep it private, stop the server when done.\n"
+                  << std::endl;
+      }
       if (web) open_browser(url);
     };
     return server::serve(a, so);

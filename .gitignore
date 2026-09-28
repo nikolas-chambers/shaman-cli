@@ -6,3 +6,11 @@ compile_commands.json
 *.jsonl
 .shaman/sessions/
 __pycache__/
+# portable mode: your keys and data, never committed
+shaman.ini
+/portable
+/config/
+/data/
+/cache/
+# release zips from scripts/package.sh
+releases/

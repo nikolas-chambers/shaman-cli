@@ -36,7 +36,8 @@ def handle(msg):
     method, params = msg.get("method"), msg.get("params") or {}
     result = None
     if method == "initialize":
-        result = {"protocolVersion": params.get("protocolVersion", "2025-06-18"), "capabilities": {"tools": {}},
+        result = {"protocolVersion": params.get("protocolVersion", "2025-06-18"),
+                  "capabilities": {"tools": {}, "prompts": {}, "resources": {}},
                   "serverInfo": {"name": "mock-mcp", "version": "1.0"}}
     elif method == "tools/list":
         result = {"tools": TOOLS}
@@ -50,6 +51,20 @@ def handle(msg):
             result = {"content": [{"type": "text", "text": "this tool always fails"}], "isError": True}
         else:
             return {"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32602, "message": "unknown tool"}}
+    elif method == "prompts/list":
+        result = {"prompts": [{"name": "review", "description": "Review a file",
+                               "arguments": [{"name": "file", "required": True}, {"name": "focus"}]}]}
+    elif method == "prompts/get":
+        a = params.get("arguments") or {}
+        result = {"messages": [{"role": "user", "content": {"type": "text",
+                  "text": "Review %s focusing on %s" % (a.get("file", "?"), a.get("focus", "everything"))}}]}
+    elif method == "resources/list":
+        result = {"resources": [{"uri": "memo://answer", "name": "The answer"}]}
+    elif method == "resources/read":
+        if params.get("uri") == "memo://answer":
+            result = {"contents": [{"uri": "memo://answer", "text": "the resource says 42"}]}
+        else:
+            return {"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32002, "message": "resource not found"}}
     elif method == "ping":
         result = {}
     else:

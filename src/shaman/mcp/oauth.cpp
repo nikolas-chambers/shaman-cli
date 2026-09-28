@@ -1,7 +1,13 @@
 #include "shaman/mcp/oauth.hpp"
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <bcrypt.h>  // Windows builds need no OpenSSL
+#else
 #include <openssl/rand.h>
 #include <openssl/sha.h>
+#endif
 
 #include <format>
 #include <fstream>
@@ -52,7 +58,11 @@ std::string base64url(std::string_view data) {
 
 std::string random_token(size_t bytes) {
   std::string buf(bytes, '\0');
+#ifdef _WIN32
+  BCryptGenRandom(nullptr, reinterpret_cast<PUCHAR>(buf.data()), ULONG(bytes), BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+#else
   RAND_bytes(reinterpret_cast<unsigned char*>(buf.data()), int(bytes));
+#endif
   return base64url(buf);
 }
 
@@ -125,8 +135,19 @@ void store_tokens(Json& entry, const Json& tok) {
 }  // namespace
 
 std::string pkce_challenge(const std::string& verifier) {
-  unsigned char digest[SHA256_DIGEST_LENGTH];
+  unsigned char digest[32];
+#ifdef _WIN32
+  BCRYPT_ALG_HANDLE alg = nullptr;
+  BCRYPT_HASH_HANDLE hash = nullptr;
+  BCryptOpenAlgorithmProvider(&alg, BCRYPT_SHA256_ALGORITHM, nullptr, 0);
+  BCryptCreateHash(alg, &hash, nullptr, 0, nullptr, 0, 0);
+  BCryptHashData(hash, reinterpret_cast<PUCHAR>(const_cast<char*>(verifier.data())), ULONG(verifier.size()), 0);
+  BCryptFinishHash(hash, digest, sizeof digest, 0);
+  BCryptDestroyHash(hash);
+  BCryptCloseAlgorithmProvider(alg, 0);
+#else
   SHA256(reinterpret_cast<const unsigned char*>(verifier.data()), verifier.size(), digest);
+#endif
   return base64url(std::string_view(reinterpret_cast<char*>(digest), sizeof digest));
 }
 
@@ -189,15 +210,7 @@ Result<void> login(const std::string& name, const McpServerConfig& cfg) {
   if (opts.contains("scope")) url += "&scope=" + str::url_encode(opts["scope"].get<std::string>());
 
   std::cerr << "Opening your browser to authorise " << name << ".\nIf it doesn't open, visit:\n  " << url << "\n";
-  const char* open = std::getenv("SHAMAN_OPEN");
-#if defined(__APPLE__)
-  std::string opener = open ? open : "open";
-#elif defined(_WIN32)
-  std::string opener = open ? open : "start \"\"";
-#else
-  std::string opener = open ? open : "xdg-open";
-#endif
-  process::shell(opener + " '" + url + "' >/dev/null 2>&1 &", {.timeout = std::chrono::seconds(10)});
+  process::open_url(url);
 
   std::string code;
   auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(5);

@@ -53,6 +53,10 @@ struct Context {
   // Background shell jobs started by `bash` with background=true.
   std::map<std::string, std::shared_ptr<process::Background>>* jobs = nullptr;
   const Registry* tools = nullptr;  // for batch
+  // When set, bash commands run through this (the OS sandbox): command + cwd -> command line to run.
+  std::function<Result<std::string>(const std::string&, const fs::path&)> sandbox;
+  // Hand the rest of the turn to another agent, optionally changing the permission mode (plan_exit).
+  std::function<void(const std::string& agent, const std::string& mode)> switch_agent;
 
   bool permit(std::string permission, std::string subject, std::string title) const;
   // Resolve a user/model supplied path; asks before leaving the project.

@@ -105,6 +105,8 @@ void Registry::apply(const std::string& name, const Json& spec, const std::strin
   if (spec.contains("model")) a.model = spec["model"].get<std::string>();
   if (spec.contains("temperature")) a.temperature = spec["temperature"].get<double>();
   if (spec.contains("max_steps")) a.max_steps = spec["max_steps"];
+  for (auto k : {"reasoningEffort", "reasoning_effort"})
+    if (spec.contains(k) && spec[k].is_string()) a.reasoning_effort = spec[k];
   if (spec.contains("tools"))
     for (auto& [tool, on] : spec["tools"].items()) a.tools[tool] = on.get<bool>();
   if (spec.contains("permission")) a.permission.merge_patch(spec["permission"]);

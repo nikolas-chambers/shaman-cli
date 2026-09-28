@@ -1,5 +1,7 @@
 #include "shaman/server/server.hpp"
 
+#include "shaman/update/update.hpp"
+
 #include <chrono>
 #include <iostream>
 #include <list>
@@ -14,6 +16,7 @@
 #include "shaman/core/log.hpp"
 #include "shaman/core/net.hpp"
 #include "shaman/version.hpp"
+#include "shaman/update/update.hpp"
 
 namespace shaman::embedded {
 extern const std::string_view web_index;
@@ -84,6 +87,11 @@ class Server {
   Server(cli::App& app, const Options& opts) : app_(app), opts_(opts) {}
 
   int run() {
+    std::thread([this, enabled = app_.config.raw.value("update_check", true)] {
+      auto v = update::newer_version(enabled);
+      std::lock_guard lock(mu_);
+      update_ = v.value_or("");
+    }).detach();
     auto l = net::Listener::bind(opts_.host, opts_.port);
     if (!l) return std::cerr << "error: " << l.error().message << "\n", 1;
     auto url = std::format("http://{}:{}", opts_.host, (*l)->port());
@@ -187,7 +195,13 @@ class Server {
     if (M == "GET" && req.path == "/config") return void(c.json(200, app_.config.raw.dump()));
     if (M == "GET" && req.path == "/info") {
       auto d = app_.providers->default_model();
-      return void(c.json(200, Json{{"version", kVersion}, {"project", app_.root.string()}, {"default_model", d ? d->ref() : ""}}.dump()));
+      std::string update;
+      {
+        std::lock_guard lock(mu_);
+        update = update_;
+      }
+      return void(c.json(200, Json{{"version", kVersion}, {"project", app_.root.string()}, {"default_model", d ? d->ref() : ""},
+                                   {"update", update}}.dump()));
     }
     if (M == "GET" && req.path == "/models") {
       Json out = Json::array();
@@ -207,7 +221,7 @@ class Server {
     }
     if (M == "GET" && req.path == "/commands") {
       Json out = Json::array();
-      for (auto& cmd : command::discover(app_.config, app_.root)) out.push_back({{"name", cmd.name}, {"description", cmd.description}});
+      for (auto& cmd : app_.commands()) out.push_back({{"name", cmd.name}, {"description", cmd.description}});
       return void(c.json(200, out.dump()));
     }
     if (M == "POST" && req.path == "/upload") {  // raw body; ?name=file.png -> {"path"}
@@ -330,7 +344,7 @@ class Server {
   void prompt(net::Connection& c, session::Info info, const Json& body) {
     auto text = body.value("text", "");
     if (auto name = body.value("command", ""); !name.empty()) {  // custom slash command
-      auto commands = command::discover(app_.config, app_.root);
+      auto commands = app_.commands();
       auto* cmd = command::find(commands, name);
       if (!cmd) return void(c.json(404, Json{{"error", "unknown command /" + name}}.dump()));
       text = command::expand(*cmd, body.value("arguments", ""), app_.root);
@@ -341,6 +355,8 @@ class Server {
     std::unique_lock busy(l.busy, std::try_to_lock);
     if (!busy) return void(c.json(409, R"({"error":"session is busy"})"));
     if (body.contains("agent")) info.agent = body["agent"];
+    if (auto m = permission::parse_mode(body.value("mode", ""))) l.runner->set_mode(*m);
+    if (body.contains("effort") && body["effort"].is_string()) l.runner->set_effort(body["effort"].get<std::string>());
     if (body.contains("goal")) info.goal = body["goal"];
     session::PromptOptions po;
     if (body.contains("model")) po.model = body["model"].get<std::string>();
@@ -351,7 +367,7 @@ class Server {
     current_stream_ = &ev;
     auto r = l.runner->prompt(info, text, ev, po);
     current_stream_ = nullptr;
-    if (r) ev.emit("done", {{"text", *r}, {"cost", info.cost}, {"input_tokens", info.usage.input}, {"output_tokens", info.usage.output}});
+    if (r) ev.emit("done", {{"text", *r}, {"agent", info.agent}, {"mode", permission::to_string(l.runner->mode())}, {"cost", info.cost}, {"input_tokens", info.usage.input}, {"output_tokens", info.usage.output}});
     else ev.emit("error", {{"message", r.error().message}});
   }
 
@@ -361,6 +377,7 @@ class Server {
   std::map<std::string, std::unique_ptr<Live>> sessions_;
   Pending pending_;
   Bus bus_;
+  std::string update_;  // newer release tag, if any (guarded by mu_)
   // The runner asks for permission on the request's own thread, so the
   // question can go straight to that request's stream.
   static thread_local StreamEvents* current_stream_;

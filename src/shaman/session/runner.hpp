@@ -18,6 +18,8 @@
 #include "shaman/session/store.hpp"
 #include "shaman/tool/tool.hpp"
 
+namespace shaman::hooks { class Hooks; }
+
 namespace shaman::session {
 
 /// A short session title from the first message: first line, at most `max` bytes, cut at a word boundary.
@@ -48,8 +50,20 @@ struct Services {
   std::atomic<bool>* cancel = nullptr;
   bool allow_all = false;          // --yolo
   lsp::Manager* lsp = nullptr;     // optional: diagnostics after edits, lsp tool
-  plugin::Host* plugins = nullptr; // optional: hooks
+  plugin::Host* plugins = nullptr; // optional: plugin hooks
   std::function<Result<std::string>(const tool::Question&)> question;  // optional: the question tool
+  const hooks::Hooks* hooks = nullptr;  // optional: user shell hooks (config "hooks")
+};
+
+// How much of the context window to use, from config "context" and the model's own "context" options:
+//   { "limit": 32000, "pruneAt": 0.6, "compactAt": 0.85, "keepToolOutputs": 6, "maxToolOutput": 20000 }
+struct ContextSettings {
+  int64_t limit = 0;             // treat the window as this many tokens (0 = the model's full window)
+  double prune_at = 0.6;         // above this share, old tool outputs are replaced by a stub in requests
+  double compact_at = 0.85;      // above this share, the conversation is summarised
+  int keep_tool_outputs = 6;     // most recent tool outputs always kept whole
+  size_t max_tool_output = 0;    // cap each tool output at this many characters (0 = the tool's own limit)
+  static ContextSettings resolve(const Json& config_context, const Json& model_context);
 };
 
 struct PromptOptions {
@@ -85,6 +99,22 @@ class Runner {
 
   std::vector<tool::Todo>& todos() { return todos_; }
 
+  // What the next request would spend its context on (estimated tokens), for /context.
+  struct ContextReport {
+    std::string model;
+    int64_t window = 0, system = 0, tools = 0, messages = 0, tool_outputs = 0;
+    size_t tool_count = 0, message_count = 0;
+  };
+  Result<ContextReport> context_report(const Info& session, const std::optional<std::string>& model = std::nullopt);
+
+  // Permission mode for every agent's gate; safe to change while a turn runs.
+  void set_mode(permission::Mode m) { mode_ = m; }
+  permission::Mode mode() const { return mode_; }
+
+  // Reasoning effort for every request from now on: low | medium | high | off; "" = model/agent default.
+  void set_effort(std::string e) { std::lock_guard l(effort_mu_); effort_ = std::move(e); }
+  std::string effort() const { std::lock_guard l(effort_mu_); return effort_; }
+
  private:
   struct Turn {
     llm::Message message{llm::Role::assistant, {}};
@@ -100,6 +130,10 @@ class Runner {
   tool::Output run_tool(const llm::ToolCallPart& call, const agent::Agent& agent, const Info& session, Events& events);
 
   Services s_;
+  std::atomic<permission::Mode> mode_{permission::Mode::normal};
+  std::optional<std::string> pending_agent_;
+  mutable std::mutex effort_mu_;
+  std::string effort_;  // set by plan_exit, applied after the tool results
   std::map<std::string, std::unique_ptr<permission::Gate>> gates_;
   std::set<std::filesystem::path> read_files_;
   std::vector<tool::Todo> todos_;

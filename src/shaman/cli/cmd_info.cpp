@@ -5,6 +5,14 @@
 #include <sstream>
 
 #include "shaman/cli/commands.hpp"
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
+#include <termios.h>
+#include <unistd.h>
+#endif
 #include "shaman/cli/render.hpp"
 #include "shaman/core/paths.hpp"
 #include "shaman/core/process.hpp"
@@ -50,6 +58,30 @@ int cmd_models(App& app, const Args& args) {
   return 0;
 }
 
+// Read a line without echoing it (keys typed at `shaman auth login`).
+static std::string read_secret() {
+  std::string line;
+#ifdef _WIN32
+  HANDLE in = GetStdHandle(STD_INPUT_HANDLE);
+  DWORD mode = 0;
+  bool console = GetConsoleMode(in, &mode);
+  if (console) SetConsoleMode(in, mode & ~ENABLE_ECHO_INPUT);
+  std::getline(std::cin, line);
+  if (console) SetConsoleMode(in, mode);
+#else
+  termios old{};
+  bool tty = isatty(STDIN_FILENO) && tcgetattr(STDIN_FILENO, &old) == 0;
+  if (tty) {
+    termios quiet = old;
+    quiet.c_lflag &= ~tcflag_t(ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &quiet);
+  }
+  std::getline(std::cin, line);
+  if (tty) tcsetattr(STDIN_FILENO, TCSANOW, &old);
+#endif
+  return line;
+}
+
 int cmd_auth(App& app, const Args& args) {
   auto& pos = args.positional;
   auto sub = pos.size() > 1 ? pos[1] : "list";
@@ -73,13 +105,19 @@ int cmd_auth(App& app, const Args& args) {
     auto* p = app.providers->find(id);
     if (!p) return std::cerr << "unknown provider: " << id << "\n", 1;
     if (!p->key_url.empty()) std::cout << "Get a key at " << p->key_url << "\n";
-    std::cout << "API key for " << p->name << ": " << std::flush;
-    std::string key;
-    std::getline(std::cin, key);
-    key = str::trim(key);
+    std::cout << "API key for " << p->name << " (input hidden): " << std::flush;
+    std::string key = str::trim(read_secret());
+    std::cout << "\n";
     if (key.empty()) return std::cerr << "no key entered\n", 1;
     if (auto r = app.auth->set(id, key); !r) return std::cerr << r.error().message << "\n", 1;
-    std::cout << "Saved. `shaman models` now lists " << p->name << " models.\n";
+    std::cout << "Saved to " << (app.auth->in_keychain(id) ? app.auth->location() : "auth.json") << ". `shaman models` now lists "
+              << p->name << " models.\n";
+    return 0;
+  }
+  if (sub == "secure") {
+    auto r = app.auth->secure();
+    if (!r) return std::cerr << r.error().message << "\n", 1;
+    std::cout << "Moved " << *r << " key(s) into the " << app.auth->location() << ".\n";
     return 0;
   }
   if (sub == "logout") {
@@ -87,7 +125,7 @@ int cmd_auth(App& app, const Args& args) {
     auto r = app.auth->remove(pos[2]);
     return r ? 0 : (std::cerr << r.error().message << "\n", 1);
   }
-  return std::cerr << "usage: shaman auth login|list|logout [provider]\n", 2;
+  return std::cerr << "usage: shaman auth login|list|logout [provider] | secure\n", 2;
 }
 
 int cmd_agents(App& app, const Args& args) {

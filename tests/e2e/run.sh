@@ -22,8 +22,11 @@ cleanup() {
 trap cleanup EXIT
 
 export XDG_CONFIG_HOME="$tmp/config" XDG_DATA_HOME="$tmp/data" XDG_CACHE_HOME="$tmp/cache"
+export SHAMAN_HOME="$tmp/home"
+export SHAMAN_NO_UPDATE_CHECK=1  # no background calls to GitHub (one check below uses the mock)  # portable root: never pick up a shaman.ini next to the dev binary
 export NO_PROXY="127.0.0.1,localhost" no_proxy="127.0.0.1,localhost"
 unset SHAMAN_MODEL SHAMAN_CONFIG SHAMAN_CONFIG_CONTENT OPENCODE_API_KEY
+export OPENCODE_API_KEY=test-key  # the mock accepts any key
 
 # start_mock <name> [mock flags...]  -> sets $url
 start_mock() {
@@ -53,6 +56,8 @@ check() {  # check <name> <expected substring> <command...>
   fi
 }
 
+check "no provider set up"   "no model provider is set up" env -u GITHUB_TOKEN -u GITHUB_MODELS_TOKEN -u OPENCODE_API_KEY -u GEMINI_API_KEY -u GOOGLE_API_KEY -u ANTHROPIC_API_KEY -u OPENAI_API_KEY -u OPENROUTER_API_KEY PATH=/usr/bin:/bin "$shaman" run hi
+check "dead provider fails fast" "fast"                     bash -c "s=\$(date +%s); env -u GITHUB_TOKEN -u GH_TOKEN -u GITHUB_MODELS_TOKEN PATH=/usr/bin:/bin SHAMAN_ZEN_URL=http://127.0.0.1:9 '$shaman' run hi >/dev/null 2>&1; [ \$((\$(date +%s) - s)) -lt 10 ] && echo fast || echo slow"
 start_mock main
 export SHAMAN_ZEN_URL="$url"
 check "plain reply"          "echo: hello"                "$shaman" run hello
@@ -134,6 +139,7 @@ check "read image to model"  "image_url"                  bash -c "'$shaman' run
 export SHAMAN_CONFIG_CONTENT='{"provider":{"mockant":{"api":"anthropic","baseURL":"'"$url"'","apiKey":"k","models":{"claude-test":{"name":"Claude Test"}}}}}'
 check "anthropic provider"   "anthropic says: the answer is 42" "$shaman" run -m mockant/claude-test read notes.txt
 check "anthropic reasoning"  "hmm"                        "$shaman" run --reasoning -m mockant/claude-test hello
+check "anthropic thinking kept" "(thinking kept)"         "$shaman" run --effort high -m mockant/claude-test read notes.txt
 unset SHAMAN_CONFIG_CONTENT
 check "auth login"           "Saved"                      bash -c "printf 'sk-test\n' | '$shaman' auth login openrouter"
 check "auth list"            "auth"                       "$shaman" auth list
@@ -153,6 +159,11 @@ check "lsp tool hover"       "mock hover"                 "$shaman" run 'call ls
 check "debug lsp"            "mock error"                 "$shaman" debug lsp bad.mock
 check "mcp stdio list"       "connected, 3 tools"         "$shaman" mcp list
 check "mcp stdio tool"       "echo: hi"                   "$shaman" run --yolo 'call mock_echo {"text":"hi"}'
+check "mcp prompt command"   "echo: Review cart.py focusing on rounding" "$shaman" run --command mock:review cart.py rounding
+check "mcp resources list"   "memo://answer"              "$shaman" run --yolo 'call mcp_resources {}'
+check "mcp server permission" "tool said: 3"             env SHAMAN_CONFIG_CONTENT='{"mcp":{"mock":{"command":["python3","'"$repo"'/tests/mock/mock_mcp.py"],"permission":{"*":"allow","fail":"deny"}}}}' "$shaman" run 'call mock_add {"a":1,"b":2}'
+check "mcp tool deny beats yolo" "permission denied"       env SHAMAN_CONFIG_CONTENT='{"mcp":{"mock":{"command":["python3","'"$repo"'/tests/mock/mock_mcp.py"],"permission":{"*":"allow","fail":"deny"}}}}' "$shaman" run --yolo 'call mock_fail {}'
+check "mcp resource read"    "tool said: the resource says 42" "$shaman" run --yolo 'call mcp_resources {"uri":"memo://answer"}'
 unset SHAMAN_CONFIG_CONTENT
 
 start_mcp() {  # start_mcp <name> [flags] -> sets $mcp_url
@@ -173,6 +184,36 @@ check "mcp oauth tool"       "tool said: 5"               "$shaman" run --yolo '
 check "mcp logout"           "Logged out of secure"       "$shaman" mcp logout secure
 unset SHAMAN_CONFIG_CONTENT
 
+check "accept edits mode"    "Create accepted.txt"       "$shaman" run --mode acceptEdits 'call write {"filePath":"accepted.txt","content":"x"}'
+check "plan mode is read-only" "permission denied"        "$shaman" run --mode plan 'run touch nope.txt'
+if command -v bwrap >/dev/null; then
+  mkdir -p "$repo/build/sbtest"
+  check "sandbox blocks writes" "Read-only file system"   env SHAMAN_CONFIG_CONTENT='{"sandbox":true,"permission":{"bash":"allow"}}' "$shaman" run "run touch $repo/build/sbtest/x"
+  check "sandbox allows project" "tool said: ok"          env SHAMAN_CONFIG_CONTENT='{"sandbox":true,"permission":{"bash":"allow"}}' "$shaman" run 'run touch sandboxed.txt && echo ok'
+  rm -rf "$repo/build/sbtest"
+fi
+# --- provider protocols and per-model tweaks --------------------------------------
+export SHAMAN_CONFIG_CONTENT='{"provider":{"mockresp":{"api":"responses","baseURL":"'"$url"'","apiKeyCommand":"echo from-command","models":{"gpt-test":{"name":"GPT Test","reasoningEffort":"medium"}}}}}'
+check "responses provider"   "responses says: the answer is 42" "$shaman" run -m mockresp/gpt-test --effort off read notes.txt
+check "responses reasoning kept" "(reasoning kept)"       "$shaman" run -m mockresp/gpt-test read notes.txt
+check "apiKeyCommand"        "mockresp (command)"         "$shaman" debug models
+unset SHAMAN_CONFIG_CONTENT
+check "model body and context" "top_k=5 cut=yes websearch=no" bash -c "SHAMAN_CONFIG_CONTENT='{\"provider\":{\"opencode\":{\"models\":{\"big-pickle\":{\"body\":{\"top_k\":5},\"context\":{\"maxToolOutput\":8},\"tools\":{\"websearch\":false}}}}}}' '$shaman' run -m opencode/big-pickle read notes.txt >/dev/null 2>&1; python3 -c \"
+import json
+reqs = [json.loads(l) for l in open('$tmp/main.requests.jsonl')]
+last = reqs[-1]
+tools = [t['function']['name'] for t in last.get('tools', [])]
+cut = any('characters cut' in str(m.get('content', '')) for m in last['messages'])
+print('top_k=%s cut=%s websearch=%s' % (last.get('top_k'), 'yes' if cut else 'no', 'yes' if 'websearch' in tools else 'no'))\""
+printf 'class Cart:\n    def total(self):\n        return 1\n' > "$project/shop.py"
+check "symbols find"         "shop.py:2  function total"  "$shaman" run 'call symbols {"operation":"find","query":"total"}'
+check "debug index"          "symbols in"                 "$shaman" debug index Cart
+# --- hooks ---------------------------------------------------------------------
+check "hook blocks a tool"   "blocked by hook: no shell today" env SHAMAN_CONFIG_CONTENT='{"hooks":{"PreToolUse":[{"matcher":"bash","command":"echo no shell today >&2; exit 2"}]}}' "$shaman" run 'run echo hi'
+check "hook gets tool json"  '"tool_response"'            bash -c "SHAMAN_CONFIG_CONTENT='{\"hooks\":{\"PostToolUse\":[{\"matcher\":\"glob\",\"command\":\"cat > $tmp/post.json\"}]}}' '$shaman' run 'call glob {\"pattern\":\"*.x\"}' >/dev/null 2>&1; cat '$tmp/post.json'"
+check "hook adds context"    "HOOK-CTX-42"                env SHAMAN_CONFIG_CONTENT='{"hooks":{"UserPromptSubmit":[{"command":"echo HOOK-CTX-42"}]}}' "$shaman" run hello
+check "hook rejects prompt"  "prompt blocked by hook: nope" env SHAMAN_CONFIG_CONTENT='{"hooks":{"UserPromptSubmit":[{"command":"echo nope >&2; exit 2"}]}}' "$shaman" run hello
+check "stop hook continues"  "stop hook: run the tests (continuing)" env SHAMAN_CONFIG_CONTENT='{"hooks":{"Stop":[{"command":"test -f '"$tmp"'/stopped || { touch '"$tmp"'/stopped; echo run the tests >&2; exit 2; }"}]}}' "$shaman" run hello
 check "formatter after write" "formatted with upper"      env SHAMAN_CONFIG_CONTENT='{"formatter":{"upper":{"command":["sed","-i","s/hello/HELLO/","$FILE"],"extensions":[".txt"]}}}' \
                                                           "$shaman" run --yolo 'call write {"filePath":"fmt.txt","content":"hello\n"}'
 
@@ -220,6 +261,26 @@ out.append('restored' if open('$project/gui.txt').read().startswith('before') an
 f = json.loads(call('POST', '/session/%s/fork' % s['id'], {}))
 out.append('forked' if f.get('id') and f['id'] != s['id'] else 'no-fork')
 print(' '.join(out))"
+check "plan approval flow"   "approved build acceptEdits created" python3 -c "
+import json, os, urllib.request as u
+op = u.build_opener(u.ProxyHandler({}))
+def call(m, p, b=None):
+    return op.open(u.Request('$srv' + p, method=m, data=json.dumps(b).encode() if b is not None else None, headers={'Content-Type': 'application/json'})).read().decode()
+s = json.loads(call('POST', '/session', {'agent': 'plan'}))
+seq = 'seq ' + json.dumps([{'tool': 'plan_exit', 'input': {'plan': '1. create planned.txt'}}, {'tool': 'write', 'input': {'filePath': 'planned.txt', 'content': 'from the plan'}}])
+resp = op.open(u.Request('$srv/session/%s/message' % s['id'], method='POST', data=json.dumps({'text': seq, 'agent': 'plan'}).encode(), headers={'Content-Type': 'application/json'}))
+ev, out, done = '', [], {}
+for line in resp:
+    line = line.decode()
+    if line.startswith('event:'): ev = line[6:].strip()
+    elif line.startswith('data:'):
+        d = json.loads(line[5:])
+        if ev == 'question': call('POST', '/question/' + d['id'], {'answer': 'Yes, and auto-accept edits'})
+        if ev == 'permission': out.append('asked-' + d['permission']); call('POST', '/permission/' + d['id'], {'reply': 'reject'})
+        if ev == 'tool_end' and d['name'] == 'plan_exit' and 'approved' in d['output']: out.append('approved')
+        if ev == 'done': done = d
+out += [done.get('agent', '?'), done.get('mode', '?'), 'created' if os.path.exists('$project/planned.txt') else 'missing']
+print(' '.join(out))"
 check "server stream ends with a child running" "event: done" bash -c "id=\$(curl -s --noproxy '*' -X POST '$srv/session' -d '{}' | python3 -c 'import json,sys;print(json.load(sys.stdin)[\"id\"])');
   curl -sN --max-time 15 --noproxy '*' -X POST \"$srv/session/\$id/message\" -d '{\"text\":\"call bash {\\\"command\\\":\\\"tail -f /dev/null\\\",\\\"description\\\":\\\"long job\\\",\\\"background\\\":true}\"}'; pkill -f '^tail -f /dev/null$'"
 check "acp prompt"           '"stopReason":"end_turn"'    bash -c "printf '%s\n' \
@@ -240,6 +301,8 @@ check "mcp serve"            "the answer is 42"           bash -c "printf '%s\n'
 echo '{"comment":{"body":"/shaman hello github","user":{"login":"nik"}},"issue":{"number":7,"title":"t","body":"b"}}' > "$tmp/event.json"
 check "github dry run"       "echo: You were asked"       env GITHUB_EVENT_PATH="$tmp/event.json" GITHUB_REPOSITORY=o/r "$shaman" github run --dry-run
 check "github install"       "Wrote .github/workflows/shaman.yml" "$shaman" github install
+check "serve --pair"         "token="                     bash -c "timeout 2 '$shaman' serve --pair --port 0 2>&1 | grep -E 'listening on http://0.0.0.0|/\?token=' | tail -1"
+check "update notice in /info" '"update":"v9.9.9"'         bash -c "env -u SHAMAN_NO_UPDATE_CHECK SHAMAN_UPDATE_API='$url' SHAMAN_HOME='$tmp/uphome' '$shaman' serve --port 0 > '$tmp/up.out' 2>&1 & p=\$!; for i in \$(seq 50); do grep -q 'listening on' '$tmp/up.out' 2>/dev/null && break; sleep 0.1; done; sleep 1; curl -s --noproxy '*' \$(awk '/listening on/ {print \$5}' '$tmp/up.out')/info; kill \$p"
 check "upgrade check"        "v9.9.9 is available"        env SHAMAN_UPDATE_API="$url" "$shaman" upgrade --check
 check "tui smoke"            "tui ok"                     python3 "$repo/tests/e2e/tui_smoke.py" "$shaman"
 

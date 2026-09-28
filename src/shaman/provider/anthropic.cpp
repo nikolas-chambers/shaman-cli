@@ -8,7 +8,15 @@ namespace shaman::provider {
 
 using namespace llm;
 
+static int64_t thinking_budget(const std::string& effort) {
+  if (effort == "low") return 2'048;
+  if (effort == "medium") return 8'192;
+  if (effort == "high") return 24'576;
+  return 0;
+}
+
 Json anthropic_body(const ChatRequest& req, int64_t default_max_tokens) {
+  const int64_t budget = thinking_budget(req.reasoning_effort);
   Json messages = Json::array();
   auto push = [&](const char* role, Json block) {
     if (!messages.empty() && messages.back()["role"] == role) messages.back()["content"].push_back(std::move(block));
@@ -32,7 +40,12 @@ Json anthropic_body(const ChatRequest& req, int64_t default_max_tokens) {
         }
         push(role, {{"type", "tool_result"}, {"tool_use_id", r->call_id}, {"content", content}, {"is_error", r->is_error}});
       }
-      // Reasoning is not replayed: unsigned thinking blocks are rejected by the API.
+      else if (auto* rp = std::get_if<ReasoningPart>(&p); rp && budget > 0 && m.role == Role::assistant) {
+        // Only signed thinking can go back (and must, for tool loops); unsigned text is dropped.
+        if (!rp->signature.empty()) push(role, {{"type", "thinking"}, {"thinking", rp->text}, {"signature", rp->signature}});
+        else if (rp->meta.is_object() && rp->meta.contains("redacted"))
+          push(role, {{"type", "redacted_thinking"}, {"data", rp->meta["redacted"]}});
+      }
     }
   }
   // Cache the conversation prefix: mark the last block of the final message.
@@ -49,7 +62,13 @@ Json anthropic_body(const ChatRequest& req, int64_t default_max_tokens) {
     tools.back()["cache_control"] = {{"type", "ephemeral"}};
     body["tools"] = tools;
   }
-  if (req.temperature) body["temperature"] = *req.temperature;
+  if (budget > 0) {
+    body["thinking"] = {{"type", "enabled"}, {"budget_tokens", budget}};
+    body["max_tokens"] = std::max<int64_t>(body["max_tokens"].get<int64_t>(), budget + 8'192);
+  } else if (req.temperature) {
+    body["temperature"] = *req.temperature;  // not allowed together with thinking
+  }
+  if (req.extra_body.is_object()) body.merge_patch(req.extra_body);
   return body;
 }
 
@@ -63,14 +82,17 @@ void AnthropicDecoder::feed(const std::string& event, const Json& d, const Event
   } else if (type == "content_block_start") {
     auto& cb = d["content_block"];
     blocks_[d.value("index", 0)] = {cb.value("type", ""), cb.value("id", ""), cb.value("name", ""), ""};
+    if (cb.value("type", "") == "redacted_thinking") sink(ReasoningDone{"", {{"redacted", cb.value("data", "")}}});
   } else if (type == "content_block_delta") {
     auto& delta = d["delta"];
     auto dt = delta.value("type", "");
     if (dt == "text_delta") sink(TextDelta{delta.value("text", "")});
     else if (dt == "thinking_delta") sink(ReasoningDelta{delta.value("thinking", "")});
     else if (dt == "input_json_delta") blocks_[d.value("index", 0)].json += delta.value("partial_json", "");
+    else if (dt == "signature_delta") blocks_[d.value("index", 0)].json += delta.value("signature", "");
   } else if (type == "content_block_stop") {
     auto it = blocks_.find(d.value("index", 0));
+    if (it != blocks_.end() && it->second.type == "thinking") sink(ReasoningDone{it->second.json, Json()});
     if (it != blocks_.end() && it->second.type == "tool_use") {
       Json input = Json::object();
       if (!it->second.json.empty()) {

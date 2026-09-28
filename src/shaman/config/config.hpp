@@ -31,6 +31,9 @@ struct McpServerConfig {
 //   5. $SHAMAN_CONFIG_CONTENT (inline JSON)
 // Objects merge key by key; later layers win. String values may use
 // {env:NAME} and {file:path} substitutions.
+// Parse shaman.ini text into a config layer (exposed for tests).
+Json parse_ini(std::string_view text);
+
 struct Config {
   std::string model;        // "provider/model"; empty picks the best free model
   std::string default_agent = "build";

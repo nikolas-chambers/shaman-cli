@@ -76,6 +76,7 @@ const Command* find(const std::vector<Command>& commands, const std::string& nam
 }
 
 std::string expand(const Command& cmd, const std::string& arguments, const fs::path& root) {
+  if (cmd.fetch) return cmd.fetch(str::trim(arguments));
   std::string out = cmd.body;
   auto words = str::split(str::trim(arguments), ' ');
   for (int i = 9; i >= 1; --i)

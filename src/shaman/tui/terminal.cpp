@@ -52,6 +52,7 @@ Terminal::Terminal() {
 
 Terminal::~Terminal() {
   if (!ok_) return;
+  if (mouse_) write("\x1b[?1000l\x1b[?1006l");
   write("\x1b[?2004l\x1b[?25h\x1b[?1049l");
   flush();
 #ifdef _WIN32
@@ -124,6 +125,12 @@ Key Terminal::read(int timeout_ms) {
   return parse();
 }
 
+void Terminal::enable_mouse(bool on) {
+  mouse_ = on;
+  write(on ? "\x1b[?1000h\x1b[?1006h" : "\x1b[?1000l\x1b[?1006l");
+  flush();
+}
+
 Key Terminal::parse() {
   auto take = [&](size_t n) { pending_.erase(0, n); };
   unsigned char c = pending_[0];
@@ -148,6 +155,17 @@ Key Terminal::parse() {
         take(std::strlen(s.s));
         return {s.t};
       }
+    if (pending_.starts_with("\x1b[<")) {  // SGR mouse: ESC [ < button ; x ; y (M|m)
+      size_t end = 3;
+      while (end < pending_.size() && pending_[end] != 'M' && pending_[end] != 'm') ++end;
+      if (end == pending_.size() && read_more(pending_, 15))
+        while (end < pending_.size() && pending_[end] != 'M' && pending_[end] != 'm') ++end;
+      int button = std::atoi(pending_.c_str() + 3);
+      take(std::min(end + 1, pending_.size()));
+      if (button == 64) return {KeyType::wheel_up};
+      if (button == 65) return {KeyType::wheel_down};
+      return {};
+    }
     if (pending_.size() >= 2 && pending_[1] == '\r') {  // alt+enter: newline
       take(2);
       return {KeyType::enter, "", 0, true};

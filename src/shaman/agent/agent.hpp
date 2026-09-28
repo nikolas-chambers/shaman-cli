@@ -21,6 +21,7 @@ struct Agent {
   std::string prompt;                  // appended to the base system prompt
   std::optional<std::string> model;    // overrides the session model
   std::optional<double> temperature;
+  std::string reasoning_effort;  // low | medium | high; empty = the model's setting
   int max_steps = 100;
   std::map<std::string, bool> tools;   // tool -> enabled; missing means enabled
   Json permission = Json::object();    // layered on top of config permissions

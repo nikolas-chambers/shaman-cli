@@ -150,7 +150,10 @@ ShellAnalysis analyze_shell(const std::string& cmd) {
         continue;  // >&2 / 2>&1
       }
       while (j < cmd.size() && cmd[j] == ' ') ++j;
-      if (cmd.compare(j, 9, "/dev/null") != 0) a.writes = true;
+      // the null device: /dev/null, or nul / $null on Windows (cmd, PowerShell)
+      auto word_end = cmd.find_first_of(" \t;&|)", j);
+      auto target = str::lower(cmd.substr(j, word_end == std::string::npos ? std::string::npos : word_end - j));
+      if (target != "/dev/null" && target != "nul" && target != "$null") a.writes = true;
       cur += c;
       continue;
     }
@@ -205,6 +208,22 @@ Json Rules::to_json() const {
   return out;
 }
 
+const char* to_string(Mode m) {
+  switch (m) {
+    case Mode::normal: return "default";
+    case Mode::accept_edits: return "acceptEdits";
+    case Mode::yolo: return "yolo";
+  }
+  return "default";
+}
+
+std::optional<Mode> parse_mode(std::string_view s) {
+  if (s == "default" || s == "normal") return Mode::normal;
+  if (s == "acceptEdits" || s == "accept-edits" || s == "accept_edits") return Mode::accept_edits;
+  if (s == "yolo" || s == "bypassPermissions") return Mode::yolo;
+  return std::nullopt;
+}
+
 bool Gate::check(const Request& req) {
   if (hook_)
     if (auto a = hook_(req)) {
@@ -218,7 +237,8 @@ bool Gate::check(const Request& req) {
       log::trace("permission", {{"permission", req.permission}, {"subject", req.subject}, {"result", "deny"}});
       return false;
     case Action::ask:
-      if (yolo_) return true;
+      if (mode() == Mode::yolo) return true;
+      if (mode() == Mode::accept_edits && req.permission == "edit") return true;
       break;
   }
   if (always_.contains({req.permission, req.subject}) || always_.contains({req.permission, "*"})) return true;

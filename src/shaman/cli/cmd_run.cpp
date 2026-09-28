@@ -42,7 +42,7 @@ int cmd_run(App& app, const Options& o, std::string message) {
   po.model = o.model;
   po.attachments = o.files;
   if (o.command) {
-    auto commands = command::discover(app.config, app.root);
+    auto commands = app.commands();
     auto* c = command::find(commands, *o.command);
     if (!c) return std::cerr << "unknown command: " << *o.command << "\n", 2;
     message = command::expand(*c, message, app.root);
@@ -52,6 +52,8 @@ int cmd_run(App& app, const Options& o, std::string message) {
   if (str::trim(message).empty()) return std::cerr << "shaman run: no message\n", 2;
 
   session::Runner runner(app.services(ask_terminal, &g_cancel, o.yolo, question_terminal));
+  if (o.accept_edits) runner.set_mode(permission::Mode::accept_edits);
+  if (o.effort) runner.set_effort(*o.effort);
   TerminalEvents term(o.reasoning);
   JsonEvents json;
   session::Events& ev = o.json ? static_cast<session::Events&>(json) : term;
@@ -127,7 +129,9 @@ int cmd_repl(App& app, Options o) {
   auto s = open_session(app, o);
   if (!s) return std::cerr << "error: " << s.error().message << "\n", 1;
   session::Runner runner(app.services(ask_terminal, &g_cancel, o.yolo, question_terminal));
-  auto commands = command::discover(app.config, app.root);
+  if (o.accept_edits) runner.set_mode(permission::Mode::accept_edits);
+  if (o.effort) runner.set_effort(*o.effort);
+  auto commands = app.commands();
   bool color = stdout_is_tty();
   auto model = app.providers->resolve(o.model.value_or(s->model));
   if (!model) model = app.providers->default_model();
@@ -154,7 +158,7 @@ int cmd_repl(App& app, Options o) {
         goto run_turn;
       }
       if (cmd == "help") {
-        std::cout << "/new /sessions /agent <name> /model <ref> /models /goal <text> /undo /turns /revert <n> /fork [n] /compact /todos /cost /exit";
+        std::cout << "/new /sessions /agent <name> /mode <m> /effort <e> /model <ref> /models /goal <text> /undo /turns /revert <n> /fork [n] /compact /todos /cost /exit";
         for (auto& c : commands) std::cout << " /" << c.name;
         std::cout << "\n";
         continue;
@@ -178,6 +182,20 @@ int cmd_repl(App& app, Options o) {
         auto* a = app.agents->find(arg);
         if (a && a->mode != agent::Mode::subagent) s->agent = arg, std::cout << "agent: " << arg << "\n";
         else std::cout << "unknown primary agent\n";
+        continue;
+      }
+      if (cmd == "effort") {
+        runner.set_effort(arg == "default" ? "" : arg);
+        std::cout << "reasoning effort: " << (arg.empty() ? "default" : arg) << "\n";
+        continue;
+      }
+      if (cmd == "mode") {
+        if (arg == "plan") s->agent = "plan", std::cout << "mode: plan\n";
+        else if (auto m = permission::parse_mode(arg)) {
+          if (s->agent == "plan") s->agent = "build";
+          runner.set_mode(*m);
+          std::cout << "mode: " << permission::to_string(*m) << "\n";
+        } else std::cout << "modes: default, acceptEdits, plan, yolo\n";
         continue;
       }
       if (cmd == "model") {

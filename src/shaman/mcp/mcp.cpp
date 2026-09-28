@@ -3,6 +3,7 @@
 #include <iostream>
 
 #include "shaman/core/log.hpp"
+#include "shaman/core/strings.hpp"
 #include "shaman/http/http.hpp"
 #include "shaman/http/sse.hpp"
 #include "shaman/mcp/oauth.hpp"
@@ -129,6 +130,45 @@ class McpTool final : public tool::Tool {
   Json spec_;
 };
 
+// Resources that MCP servers expose (files, docs, records): list them, or read one by URI.
+class McpResources final : public tool::Tool {
+ public:
+  explicit McpResources(std::vector<std::shared_ptr<Client>> clients) : clients_(std::move(clients)) {}
+  std::string name() const override { return "mcp_resources"; }
+  std::string description() const override {
+    return "List or read resources exposed by connected MCP servers (documents, files, records). Call with no uri to "
+           "list them (optionally for one server), or with a uri to read it.";
+  }
+  Json schema() const override {
+    return {{"type", "object"}, {"properties", {{"server", {{"type", "string"}}}, {"uri", {{"type", "string"}}}}}};
+  }
+  tool::Output run(const Json& in, tool::Context& ctx) override {
+    auto server = in.value("server", ""), uri = in.value("uri", "");
+    if (!ctx.permit("mcp", "mcp_resources", uri.empty() ? "List MCP resources" : "Read MCP resource " + uri))
+      return tool::error("permission denied");
+    std::string out;
+    for (auto& c : clients_) {
+      if (!server.empty() && c->name() != server) continue;
+      if (!c->has("resources")) continue;
+      if (!uri.empty()) {
+        auto r = c->read_resource(uri);
+        if (r) return {tool::truncate(*r), false, "Read " + uri};
+        if (!server.empty()) return tool::error(r.error().message);
+        continue;  // try the next server
+      }
+      auto list = c->list_resources();
+      if (!list) continue;
+      for (auto& r : *list)
+        out += std::format("{}  {}  {}\n", c->name(), r.value("uri", ""), r.value("name", r.value("description", "")));
+    }
+    if (!uri.empty()) return tool::error("no server could read " + uri);
+    return {out.empty() ? "no resources" : out, false, "MCP resources"};
+  }
+
+ private:
+  std::vector<std::shared_ptr<Client>> clients_;
+};
+
 }  // namespace
 
 Result<std::shared_ptr<Client>> Client::connect(const std::string& name, const McpServerConfig& cfg) {
@@ -146,6 +186,7 @@ Result<std::shared_ptr<Client>> Client::connect(const std::string& name, const M
   auto init = client->call("initialize", {{"protocolVersion", kProtocol}, {"capabilities", Json::object()},
                                           {"clientInfo", {{"name", "shaman-cli"}, {"version", kVersion}}}});
   if (!init) return std::unexpected(init.error());
+  client->capabilities_ = init->value("capabilities", Json::object());
   client->transport_->notify(Json{{"jsonrpc", "2.0"}, {"method", "notifications/initialized"}});
   return client;
 }
@@ -160,18 +201,103 @@ Result<Json> Client::call(const std::string& method, const Json& params) {
   return reply->value("result", Json::object());
 }
 
-Result<std::vector<Json>> Client::list_tools() {
+Result<std::vector<Json>> Client::list_all(const std::string& method, const std::string& key) {
   std::vector<Json> all;
   Json params = Json::object();
   while (true) {  // follow pagination cursors
-    auto r = call("tools/list", params);
+    auto r = call(method, params);
     if (!r) return std::unexpected(r.error());
-    for (auto& t : r->value("tools", Json::array())) all.push_back(t);
+    for (auto& t : r->value(key, Json::array())) all.push_back(t);
     auto cursor = r->value("nextCursor", "");
     if (cursor.empty()) break;
     params["cursor"] = cursor;
   }
   return all;
+}
+
+Result<std::vector<Json>> Client::list_tools() { return list_all("tools/list", "tools"); }
+
+Result<std::vector<Json>> Client::list_prompts() {
+  if (!has("prompts")) return std::vector<Json>{};
+  return list_all("prompts/list", "prompts");
+}
+
+Result<std::vector<Json>> Client::list_resources() {
+  if (!has("resources")) return std::vector<Json>{};
+  return list_all("resources/list", "resources");
+}
+
+static std::string content_text(const Json& c) {
+  if (!c.is_object()) return "";
+  auto type = c.value("type", "");
+  if (type == "text") return c.value("text", "");
+  if (type == "resource") return c.value("resource", Json::object()).value("text", "");
+  return "[" + type + " content omitted]";
+}
+
+Result<std::string> Client::get_prompt(const std::string& prompt, const Json& arguments) {
+  auto r = call("prompts/get", {{"name", prompt}, {"arguments", arguments}});
+  if (!r) return std::unexpected(r.error());
+  std::string out;
+  for (auto& m : r->value("messages", Json::array())) {
+    auto text = content_text(m.value("content", Json::object()));
+    if (text.empty()) continue;
+    if (!out.empty()) out += "\n\n";
+    out += m.value("role", "user") == "assistant" ? "(assistant) " + text : text;
+  }
+  return out;
+}
+
+Result<std::string> Client::read_resource(const std::string& uri) {
+  auto r = call("resources/read", {{"uri", uri}});
+  if (!r) return std::unexpected(r.error());
+  std::string out;
+  for (auto& c : r->value("contents", Json::array())) {
+    if (!out.empty()) out += "\n\n";
+    out += c.contains("text") ? c.value("text", "") : "[binary " + c.value("mimeType", "data") + " omitted]";
+  }
+  return out;
+}
+
+std::vector<command::Command> prompt_commands(const std::vector<std::shared_ptr<Client>>& clients) {
+  std::vector<command::Command> out;
+  for (auto& client : clients) {
+    auto prompts = client->list_prompts();
+    if (!prompts) continue;
+    for (auto& p : *prompts) {
+      command::Command cmd;
+      auto pname = p.value("name", "");
+      cmd.name = client->name() + ":" + pname;
+      cmd.description = p.value("description", "MCP prompt");
+      cmd.source = "mcp " + client->name();
+      std::vector<std::string> names;
+      for (auto& a : p.value("arguments", Json::array())) names.push_back(a.value("name", ""));
+      cmd.fetch = [client, pname, names](const std::string& args) -> std::string {
+        Json values = Json::object();
+        std::vector<std::string> positional;
+        for (auto& word : str::split(args, ' ')) {
+          if (word.empty()) continue;
+          auto eq = word.find('=');
+          if (eq != std::string::npos && std::ranges::find(names, word.substr(0, eq)) != names.end())
+            values[word.substr(0, eq)] = word.substr(eq + 1);
+          else
+            positional.push_back(word);
+        }
+        size_t i = 0;
+        for (auto& n : names) {
+          if (values.contains(n) || i >= positional.size()) continue;
+          bool last = &n == &names.back();
+          std::string v = positional[i++];
+          if (last) while (i < positional.size()) v += " " + positional[i++];  // the last argument takes the rest
+          values[n] = v;
+        }
+        auto r = client->get_prompt(pname, values);
+        return r ? *r : "(MCP prompt " + pname + " failed: " + r.error().message + ")";
+      };
+      out.push_back(std::move(cmd));
+    }
+  }
+  return out;
 }
 
 std::vector<std::shared_ptr<Client>> load(const Config& config, tool::Registry& tools) {
@@ -192,6 +318,8 @@ std::vector<std::shared_ptr<Client>> load(const Config& config, tool::Registry& 
     log::debug(log::Cat::mcp, "{}: {} tools", name, list->size());
     clients.push_back(*client);
   }
+  if (std::ranges::any_of(clients, [](auto& c) { return c->has("resources"); }))
+    tools.add(std::make_unique<McpResources>(clients));
   return clients;
 }
 

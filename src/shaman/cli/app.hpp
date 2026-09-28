@@ -6,7 +6,9 @@
 #include <vector>
 
 #include "shaman/agent/agent.hpp"
+#include "shaman/command/command.hpp"
 #include "shaman/config/config.hpp"
+#include "shaman/hooks/hooks.hpp"
 #include "shaman/lsp/lsp.hpp"
 #include "shaman/plugin/plugin.hpp"
 #include "shaman/mcp/mcp.hpp"
@@ -29,9 +31,12 @@ struct App {
   std::vector<std::shared_ptr<mcp::Client>> mcp;
   std::unique_ptr<lsp::Manager> lsp;
   plugin::Host plugins;
+  hooks::Hooks hooks;
 
   // `with_runtime` starts MCP servers and plugins (skip for inspection commands).
   static Result<std::unique_ptr<App>> create(const std::filesystem::path& cwd, bool with_runtime);
+  // Custom commands plus MCP prompts ("<server>:<prompt>").
+  std::vector<command::Command> commands() const;
   session::Services services(permission::Asker asker, std::atomic<bool>* cancel, bool allow_all,
                              std::function<Result<std::string>(const tool::Question&)> question = nullptr);
 };

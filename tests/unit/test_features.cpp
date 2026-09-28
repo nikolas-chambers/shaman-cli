@@ -1,7 +1,9 @@
 #include "shaman/command/command.hpp"
+#include "shaman/config/config.hpp"
 #include "shaman/core/strings.hpp"
 #include "shaman/diff/diff.hpp"
 #include "shaman/github/github.hpp"
+#include "shaman/index/index.hpp"
 #include "shaman/mcp/oauth.hpp"
 #include "shaman/provider/anthropic.hpp"
 #include "shaman/session/archive.hpp"
@@ -188,4 +190,43 @@ TEST(session_title_from_first_message) {
   CHECK_EQ(t, std::string("Why is the cart total wrong when I apply…"));
   auto u = session::make_title(std::string(39, 'a') + "éé", 40);  // never splits a code point
   CHECK_EQ(u, std::string(39, 'a') + "…");
+}
+
+TEST(portable_ini_layer) {
+  auto j = parse_ini("; comment\n[keys]\nopencode = sk-1 ; trailing\nanthropic =\n[settings]\nagent = plan\nmode = acceptEdits\n"
+                     "goal_max_rounds = 7\nsnapshot = false\n[permission]\nbash = allow\n[env]\nFOO = \"bar baz\"\n");
+  CHECK_EQ(j["provider"]["opencode"]["apiKey"].get<std::string>(), std::string("sk-1"));
+  CHECK(!j["provider"].contains("anthropic"));  // empty values are ignored
+  CHECK_EQ(j["default_agent"].get<std::string>(), std::string("plan"));
+  CHECK_EQ(j["mode"].get<std::string>(), std::string("acceptEdits"));
+  CHECK_EQ(j["goal_max_rounds"].get<int>(), 7);
+  CHECK(j["snapshot"].is_boolean() && !j["snapshot"].get<bool>());
+  CHECK_EQ(j["permission"]["bash"].get<std::string>(), std::string("allow"));
+  CHECK_EQ(j["env"]["FOO"].get<std::string>(), std::string("bar baz"));
+}
+
+TEST(portable_ini_tui_sections) {
+  auto j = parse_ini("[tui]\ntheme = halloween\nmouse = true\n[keybinds]\nctrl+g = /sessions\n");
+  CHECK_EQ(j["tui"]["theme"].get<std::string>(), std::string("halloween"));
+  CHECK(j["tui"]["mouse"].get<bool>());
+  CHECK_EQ(j["tui"]["keybinds"]["ctrl+g"].get<std::string>(), std::string("/sessions"));
+}
+
+TEST(symbol_index_scan) {
+  auto names = [](const std::vector<index::Symbol>& v) {
+    std::string s;
+    for (auto& x : v) s += x.kind + ":" + x.name + "@" + std::to_string(x.line) + " ";
+    return s;
+  };
+  auto py = names(index::scan("a.py", "import os\nclass Cart:\n    def total(self):\n        return 1\nasync def main():\n    pass\n"));
+  CHECK_EQ(py, std::string("class:Cart@2 function:total@3 function:main@5 "));
+  auto ts = names(index::scan("a.ts", "export interface User {}\nexport const load = async (id: string) => {\n}\nexport default class App {}\nfunction helper() {}\n"));
+  CHECK_EQ(ts, std::string("type:User@1 function:load@2 class:App@4 function:helper@5 "));
+  auto go = names(index::scan("a.go", "package x\ntype Server struct {}\nfunc (s *Server) Start() error {\nfunc New() *Server {\n"));
+  CHECK_EQ(go, std::string("type:Server@2 function:Start@3 function:New@4 "));
+  auto rs = names(index::scan("a.rs", "pub struct Config {}\nimpl Config {\n    pub fn load() -> Self {\n"));
+  CHECK_EQ(rs, std::string("struct:Config@1 impl:Config@2 function:load@3 "));
+  auto cpp = names(index::scan("a.cpp", "namespace app {\nclass Widget : public Base {\nint Widget::size() const {\nif (x) {\nstatic void helper(int a) {\n"));
+  CHECK_EQ(cpp, std::string("namespace:app@1 class:Widget@2 function:Widget::size@3 function:helper@5 "));
+  CHECK(index::scan("notes.txt", "def x():").empty());
 }

@@ -1,11 +1,14 @@
 // multiedit, question, batch, http, notebook_edit, bash_output, bash_kill, memory
 #include <format>
 #include <future>
+#include <mutex>
 #include <thread>
 
+#include "shaman/core/paths.hpp"
 #include "shaman/core/strings.hpp"
 #include "shaman/diff/diff.hpp"
 #include "shaman/http/http.hpp"
+#include "shaman/index/index.hpp"
 #include "shaman/tool/builtin/common.hpp"
 #include "shaman/tool/builtin/edit.hpp"
 
@@ -115,6 +118,96 @@ class Question final : public Tool {
     if (!r) return error(r.error().message);
     return {"User answered: " + *r, false, "Asked: " + q.question.substr(0, 60)};
   }
+};
+
+class PlanExit final : public Tool {
+ public:
+  std::string name() const override { return "plan_exit"; }
+  std::string description() const override {
+    return "Present your finished plan to the user for approval. Call it once the plan is concrete (files to change, "
+           "steps, how you will verify). If approved, you switch to the build agent and should start implementing "
+           "straight away; if not, you get the user's feedback to revise the plan.";
+  }
+  Json schema() const override {
+    return {{"type", "object"},
+            {"properties", {{"plan", {{"type", "string"}, {"description", "The plan, in Markdown"}}}}},
+            {"required", {"plan"}}};
+  }
+  Output run(const Json& in, Context& ctx) override {
+    auto plan = in.value("plan", "");
+    if (plan.empty()) return error("give the plan");
+    if (!ctx.question || !ctx.switch_agent)
+      return error("nobody can approve a plan here; give the plan as your final answer instead");
+    static const std::string yes = "Yes, build it", yes_edits = "Yes, and auto-accept edits", no = "No, keep planning";
+    auto r = ctx.question({plan + "\n\nApprove this plan?", {yes, yes_edits, no}, false});
+    if (!r) return error(r.error().message);
+    if (*r == yes || *r == yes_edits) {
+      ctx.switch_agent("build", *r == yes_edits ? "acceptEdits" : "");
+      return {"The user approved the plan. You are now the build agent with edit tools: implement the plan, then verify it.",
+              false, "Plan approved"};
+    }
+    auto feedback = *r == no || r->empty() ? std::string("no specific feedback") : *r;
+    return {"The user did not approve the plan (" + feedback + "). Revise it, or ask what to change.", false, "Plan not approved"};
+  }
+};
+
+// Jump to code: where things are defined, a file's outline, or a map of the repo (the codebase index).
+class Symbols final : public Tool {
+ public:
+  explicit Symbols(fs::path root) : root_(std::move(root)) {}
+  std::string name() const override { return "symbols"; }
+  std::string description() const override {
+    return "Find code by name using the project's symbol index (functions, classes, types across 25 languages). "
+           "operation 'find' with query: where a symbol is defined (exact, then partial matches). 'outline' with "
+           "filePath: the definitions in a file with line numbers. 'map' (optional path): the repository layout "
+           "with each file's main symbols; start here in an unfamiliar or large codebase. Use grep for usages.";
+  }
+  Json schema() const override {
+    return {{"type", "object"},
+            {"properties", {{"operation", {{"type", "string"}, {"enum", {"find", "outline", "map"}}}},
+                            {"query", {{"type", "string"}}},
+                            {"filePath", {{"type", "string"}}},
+                            {"path", {{"type", "string"}, {"description", "map: only this directory"}}}}},
+            {"required", {"operation"}}};
+  }
+  Output run(const Json& in, Context& ctx) override {
+    std::lock_guard lock(mu_);
+    if (!index_)
+      index_ = std::make_unique<index::Index>(root_, paths::data_dir() / "projects" / paths::project_id(root_) / "index.json");
+    index_->refresh();
+    auto op = in.value("operation", "");
+    auto line = [&](const index::Symbol& s) { return std::format("{}:{}  {} {}", s.file, s.line, s.kind, s.name); };
+    if (op == "find") {
+      auto q = in.value("query", "");
+      if (q.empty()) return error("find needs a query");
+      auto hits = index_->find(q);
+      if (hits.empty()) return {"no definitions matching '" + q + "' (try grep for text)", false, "Symbols: " + q};
+      std::string out;
+      for (auto& s : hits) out += line(s) + "\n";
+      return {out, false, std::format("Find {} ({} found)", q, hits.size())};
+    }
+    if (op == "outline") {
+      auto p = ctx.path(in.value("filePath", ""));
+      if (!p) return error(p.error().message);
+      auto rel = fs::relative(*p, root_).generic_string();
+      auto syms = index_->outline(rel);
+      if (syms.empty()) return {"no definitions found in " + rel, false, "Outline " + rel};
+      std::string out;
+      for (auto& s : syms) out += std::format("{:>5}  {} {}\n", s.line, s.kind, s.name);
+      return {out, false, std::format("Outline {} ({} symbols)", rel, syms.size())};
+    }
+    if (op == "map") {
+      auto out = index_->map(in.value("path", ""));
+      return {out.empty() ? "no indexed source files" : out, false,
+              std::format("Repo map ({} files, {} symbols)", index_->file_count(), index_->symbol_count())};
+    }
+    return error("operation must be find, outline or map");
+  }
+
+ private:
+  fs::path root_;
+  std::mutex mu_;
+  std::unique_ptr<index::Index> index_;
 };
 
 class Batch final : public Tool {
@@ -349,6 +442,8 @@ class Memory final : public Tool {
 }  // namespace
 
 std::unique_ptr<Tool> make_multiedit() { return std::make_unique<MultiEdit>(); }
+std::unique_ptr<Tool> make_plan_exit() { return std::make_unique<PlanExit>(); }
+std::unique_ptr<Tool> make_symbols(const fs::path& root) { return std::make_unique<Symbols>(root); }
 std::unique_ptr<Tool> make_question() { return std::make_unique<Question>(); }
 std::unique_ptr<Tool> make_batch() { return std::make_unique<Batch>(); }
 std::unique_ptr<Tool> make_http() { return std::make_unique<Http>(); }

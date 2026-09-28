@@ -9,10 +9,8 @@ namespace shaman::provider {
 
 // Providers shaman knows about out of the box.
 //
-// OpenCode Zen's free tier works with no sign-up: a handful of models served
-// at no cost with the shared key "public". Every other provider becomes usable
-// once it has a key (env var, `shaman auth login`, or config), or, for local
-// servers like Ollama, immediately.
+// A provider becomes usable once it has a key (env var, `shaman auth login`, or
+// config), or, for local servers like Ollama, immediately.
 std::vector<ProviderInfo> builtin();
 
 // Fetch a provider's live model list (GET {base}/models) and cache it under

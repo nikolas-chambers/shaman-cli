@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -13,9 +14,17 @@
 
 namespace shaman::process {
 
+// A pipe or process: a file descriptor / pid on POSIX, a HANDLE on Windows.
+#ifdef _WIN32
+using native_handle = std::intptr_t;
+#else
+using native_handle = int;
+#endif
+
 struct Output {
   int exit_code = -1;
-  std::string output;  // stdout and stderr, interleaved
+  std::string output;  // stdout and stderr, interleaved (only stdout with separate_stderr)
+  std::string error;   // stderr, with separate_stderr
   bool timed_out = false;
   bool cancelled = false;
 };
@@ -25,6 +34,9 @@ struct Options {
   std::chrono::milliseconds timeout{120'000};
   std::atomic<bool>* cancel = nullptr;
   size_t max_output = 1 << 20;  // keep at most this many bytes
+  std::optional<std::string> input;                          // fed to stdin (default: empty stdin)
+  std::vector<std::pair<std::string, std::string>> env;       // extra environment variables
+  bool separate_stderr = false;                               // collect stderr into Output::error
 };
 
 // Run argv directly (no shell). The child gets its own process group so a
@@ -36,6 +48,12 @@ Result<Output> shell(const std::string& command, const Options& opts);
 
 // Absolute path of an executable on PATH, if any.
 std::optional<std::filesystem::path> which(const std::string& name);
+
+// Running inside Termux on Android (no /tmp, no desktop; termux-api tools for notifications, clipboard, URLs).
+bool termux();
+
+// Open a URL in the user's browser ($SHAMAN_OPEN overrides the opener). Returns immediately.
+void open_url(const std::string& url);
 
 // Long-lived child with piped stdin/stdout, for line-based protocols (MCP).
 class Child {
@@ -58,9 +76,10 @@ class Child {
 
  private:
   Child() = default;
-  int pid_ = -1;
-  int in_ = -1;   // child's stdin (we write)
-  int out_ = -1;  // child's stdout (we read)
+  native_handle pid_ = -1;  // process (Windows: process handle)
+  native_handle in_ = -1;   // child's stdin (we write)
+  native_handle out_ = -1;  // child's stdout (we read)
+  native_handle job_ = -1;  // Windows: job object owning the process tree
   std::string buf_;
 };
 
@@ -80,7 +99,8 @@ class Background {
  private:
   Background() = default;
   void pump();
-  int pid_ = -1, fd_ = -1, in_ = -1, exit_code_ = -1;
+  native_handle pid_ = -1, fd_ = -1, in_ = -1, job_ = -1;
+  int exit_code_ = -1;
   std::string command_, buf_;
   std::mutex mu_;
 };

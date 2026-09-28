@@ -79,6 +79,8 @@ def make_handler(args):
                     f.write(json.dumps(body) + "\n")
             if self.path.rstrip("/").endswith("/messages"):
                 return self.anthropic(body)
+            if self.path.rstrip("/").endswith("/responses"):
+                return self.openai_responses(body)
             if not self.path.rstrip("/").endswith("/chat/completions"):
                 return self.send_json(404, {"error": {"message": "not found"}})
             if body.get("model") in args.rate_limit:
@@ -168,6 +170,40 @@ def make_handler(args):
                 event(finish="stop", usage=usage)
             self.wfile.write(b"data: [DONE]\n\n")
 
+        def openai_responses(self, body):
+            """OpenAI Responses API streaming: "read <file>" calls read; reasoning items must come back."""
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+
+            def ev(data):
+                self.wfile.write(f"event: {data['type']}\ndata: {json.dumps(data)}\n\n".encode())
+                self.wfile.flush()
+
+            items = body.get("input", [])
+            outputs = [i for i in items if i.get("type") == "function_call_output"]
+            user = [i for i in items if i.get("role") == "user"]
+            text = " ".join(c.get("text", "") for c in (user[-1]["content"] if user else []) if c.get("type") == "input_text")
+            reasoning = body.get("reasoning") is not None
+            if reasoning:
+                ev({"type": "response.reasoning_summary_text.delta", "delta": "thinking about it"})
+                ev({"type": "response.output_item.done", "item": {"type": "reasoning", "id": "rs_1", "summary": [],
+                                                                  "encrypted_content": "enc-1"}})
+            if not outputs and text.startswith("read "):
+                ev({"type": "response.output_item.added", "item": {"type": "function_call", "id": "fc_1", "call_id": "call_r1", "name": "read", "arguments": ""}})
+                raw = json.dumps({"filePath": text[5:].strip()})
+                ev({"type": "response.function_call_arguments.delta", "item_id": "fc_1", "delta": raw[:6]})
+                ev({"type": "response.function_call_arguments.delta", "item_id": "fc_1", "delta": raw[6:]})
+                ev({"type": "response.output_item.done", "item": {"type": "function_call", "id": "fc_1", "call_id": "call_r1", "name": "read", "arguments": raw}})
+            else:
+                first = outputs[-1]["output"].split("\n")[0].split("\t", 1)[-1].strip() if outputs else text
+                kept = any(i.get("type") == "reasoning" and i.get("encrypted_content") == "enc-1" for i in items)
+                reply = "responses says: " + first + (" (reasoning kept)" if kept else "")
+                for part in (reply[:10], reply[10:]):
+                    ev({"type": "response.output_text.delta", "delta": part})
+            ev({"type": "response.completed", "response": {"status": "completed", "usage": {
+                "input_tokens": 40, "output_tokens": 9, "output_tokens_details": {"reasoning_tokens": 3 if reasoning else 0}}}})
+
         def anthropic(self, body):
             """Anthropic Messages API streaming, same scenarios as chat completions."""
             if body.get("model") in args.rate_limit:
@@ -189,6 +225,11 @@ def make_handler(args):
             text = " ".join(b.get("text", "") for b in blocks if b.get("type") == "text")
             ev("message_start", {"message": {"id": "msg_1", "role": "assistant", "usage": {"input_tokens": 50, "output_tokens": 1}}})
             if result is None and text.startswith("read "):
+                if body.get("thinking"):
+                    ev("content_block_start", {"index": 9, "content_block": {"type": "thinking", "thinking": ""}})
+                    ev("content_block_delta", {"index": 9, "delta": {"type": "thinking_delta", "thinking": "plan: read it"}})
+                    ev("content_block_delta", {"index": 9, "delta": {"type": "signature_delta", "signature": "sig-1"}})
+                    ev("content_block_stop", {"index": 9})
                 ev("content_block_start", {"index": 0, "content_block": {"type": "text", "text": ""}})
                 ev("content_block_delta", {"index": 0, "delta": {"type": "text_delta", "text": "Reading. "}})
                 ev("content_block_stop", {"index": 0})
@@ -200,6 +241,10 @@ def make_handler(args):
                 ev("message_delta", {"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 20}})
             else:
                 reply = "anthropic says: " + (result["content"].split("\n")[0].split("\t", 1)[-1].strip() if result else text)
+                if body.get("thinking") and result is not None:  # signed thinking from the tool turn must come back
+                    signed = any(b.get("type") == "thinking" and b.get("signature") == "sig-1"
+                                 for msg in body["messages"] if msg["role"] == "assistant" for b in msg["content"])
+                    reply += " (thinking kept)" if signed else " (thinking lost)"
                 ev("content_block_start", {"index": 0, "content_block": {"type": "thinking", "thinking": ""}})
                 ev("content_block_delta", {"index": 0, "delta": {"type": "thinking_delta", "thinking": "hmm"}})
                 ev("content_block_stop", {"index": 0})

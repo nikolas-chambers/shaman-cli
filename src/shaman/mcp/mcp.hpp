@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "shaman/command/command.hpp"
 #include "shaman/config/config.hpp"
 #include "shaman/core/process.hpp"
 #include "shaman/tool/tool.hpp"
@@ -27,6 +28,12 @@ class Client {
   static Result<std::shared_ptr<Client>> connect(const std::string& name, const McpServerConfig& cfg);
   Result<Json> call(const std::string& method, const Json& params);
   Result<std::vector<Json>> list_tools();
+  Result<std::vector<Json>> list_prompts();    // [] when the server has no prompts
+  Result<std::vector<Json>> list_resources();  // [] when the server has no resources
+  // A prompt's messages as one text; `arguments` fills its named arguments.
+  Result<std::string> get_prompt(const std::string& prompt, const Json& arguments);
+  Result<std::string> read_resource(const std::string& uri);
+  bool has(const std::string& capability) const { return capabilities_.contains(capability); }
   const std::string& name() const { return name_; }
 
  private:
@@ -36,12 +43,18 @@ class Client {
   std::unique_ptr<Transport> transport_;
   std::chrono::milliseconds timeout_;
   int next_id_ = 1;
+  Json capabilities_ = Json::object();
+  Result<std::vector<Json>> list_all(const std::string& method, const std::string& key);
   std::mutex mu_;
 };
 
 // Connect every enabled server in config and register its tools. Failures
 // are logged and skipped so one broken server never blocks startup.
 std::vector<std::shared_ptr<Client>> load(const Config& config, tool::Registry& tools);
+
+// Every server's prompts as slash commands named "<server>:<prompt>"; arguments are split on spaces
+// (the last argument takes the rest) or given as name=value.
+std::vector<command::Command> prompt_commands(const std::vector<std::shared_ptr<Client>>& clients);
 
 // Serve shaman's own tools over MCP stdio (`shaman mcp serve`).
 int serve(const Config& config, const std::filesystem::path& root, tool::Registry& tools, bool allow_all);

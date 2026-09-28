@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <optional>
 #include <set>
@@ -71,6 +72,15 @@ using Asker = std::function<Reply(const Request&)>;
 // A hook consulted before rules (plugins); nullopt defers to the rules.
 using Hook = std::function<std::optional<Action>(const Request&)>;
 
+// How much to ask. Explicit "deny" rules hold in every mode.
+enum class Mode {
+  normal,        // follow the rules
+  accept_edits,  // file edits inside the project are allowed without asking; everything else as normal
+  yolo,          // every "ask" becomes "allow" (--yolo)
+};
+const char* to_string(Mode m);
+std::optional<Mode> parse_mode(std::string_view s);  // "default"/"normal", "acceptEdits"/"accept-edits", "yolo"
+
 class Gate {
  public:
   Gate(Rules rules, Asker asker, Hook hook = nullptr)
@@ -78,14 +88,19 @@ class Gate {
   bool check(const Request& req);
   // --yolo: every "ask" becomes "allow". Explicit "deny" rules still hold, so
   // a read-only agent stays read-only and `rm -rf /` stays refused.
-  void allow_all() { yolo_ = true; }
+  void allow_all() { mode_ = Mode::yolo; }
+  void set_mode(Mode m) { mode_ = m; }
+  // Follow a mode owned elsewhere (the runner's, which the UI changes while a turn runs).
+  void follow(const std::atomic<Mode>* mode) { shared_mode_ = mode; }
+  Mode mode() const { return shared_mode_ ? shared_mode_->load() : mode_.load(); }
 
  private:
   Rules rules_;
   Asker asker_;
   Hook hook_;
   std::set<std::pair<std::string, std::string>> always_;
-  bool yolo_ = false;
+  std::atomic<Mode> mode_ = Mode::normal;
+  const std::atomic<Mode>* shared_mode_ = nullptr;
 };
 
 }  // namespace shaman::permission

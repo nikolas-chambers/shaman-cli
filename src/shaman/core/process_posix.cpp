@@ -48,33 +48,63 @@ std::optional<fs::path> which(const std::string& name) {
 
 Result<Output> run(const std::vector<std::string>& argv, const Options& opts) {
   if (argv.empty()) return fail("empty command");
-  int pipefd[2];
+  // stdin comes from a temp file: no writer thread, no deadlock with a child that ignores its input
+  std::string input_path;
+  if (opts.input) {
+    std::error_code tec;
+    auto dir = std::filesystem::temp_directory_path(tec);  // honours TMPDIR (Termux has no /tmp)
+    std::string tmpl_s = ((tec || dir.empty()) ? std::filesystem::path(".") : dir).string() + "/shaman-in-XXXXXX";
+    std::vector<char> tmpl(tmpl_s.begin(), tmpl_s.end());
+    tmpl.push_back('\0');
+    int fd = mkstemp(tmpl.data());
+    if (fd < 0) return fail(std::string("mkstemp: ") + std::strerror(errno), errno);
+    for (size_t off = 0; off < opts.input->size();) {
+      ssize_t n = write(fd, opts.input->data() + off, opts.input->size() - off);
+      if (n <= 0) break;
+      off += size_t(n);
+    }
+    close(fd);
+    input_path = tmpl.data();
+  }
+  int pipefd[2], errfd[2] = {-1, -1};
   if (pipe(pipefd) != 0) return fail(std::string("pipe: ") + std::strerror(errno), errno);
+  if (opts.separate_stderr && pipe(errfd) != 0) return fail(std::string("pipe: ") + std::strerror(errno), errno);
 
   pid_t pid = fork();
   if (pid < 0) return fail(std::string("fork: ") + std::strerror(errno), errno);
   if (pid == 0) {
     setpgid(0, 0);
-    int devnull = open("/dev/null", O_RDONLY);
-    dup2(devnull, STDIN_FILENO);
+    int in = open(input_path.empty() ? "/dev/null" : input_path.c_str(), O_RDONLY);
+    dup2(in, STDIN_FILENO);
     dup2(pipefd[1], STDOUT_FILENO);
-    dup2(pipefd[1], STDERR_FILENO);
+    dup2(opts.separate_stderr ? errfd[1] : pipefd[1], STDERR_FILENO);
     close(pipefd[0]);
     close(pipefd[1]);
+    if (opts.separate_stderr) close(errfd[0]), close(errfd[1]);
     if (!opts.cwd.empty() && chdir(opts.cwd.c_str()) != 0) _exit(126);
     noninteractive_env();
+    for (auto& [k, v] : opts.env) setenv(k.c_str(), v.c_str(), 1);
     auto args = make_argv(argv);
     execvp(args[0], args.data());
     _exit(127);
   }
   close(pipefd[1]);
+  if (opts.separate_stderr) close(errfd[1]), fcntl(errfd[0], F_SETFL, O_NONBLOCK);
   fcntl(pipefd[0], F_SETFL, O_NONBLOCK);
 
   Output out;
   auto deadline = steady_clock::now() + opts.timeout;
   char buf[8192];
-  bool open_pipe = true;
-  while (open_pipe) {
+  bool out_open = true, err_open = opts.separate_stderr;
+  auto drain = [&](int fd, std::string& into, bool& open_flag) {
+    ssize_t n = read(fd, buf, sizeof buf);
+    if (n > 0) {
+      if (into.size() < opts.max_output) into.append(buf, std::min<size_t>(n, opts.max_output - into.size()));
+    } else if (n == 0 || errno != EAGAIN) {
+      open_flag = false;
+    }
+  };
+  while (out_open || err_open) {
     if (opts.cancel && opts.cancel->load()) {
       out.cancelled = true;
       break;
@@ -83,18 +113,14 @@ Result<Output> run(const std::vector<std::string>& argv, const Options& opts) {
       out.timed_out = true;
       break;
     }
-    pollfd pfd{pipefd[0], POLLIN, 0};
-    if (poll(&pfd, 1, 100) > 0) {
-      ssize_t n = read(pipefd[0], buf, sizeof buf);
-      if (n > 0) {
-        if (out.output.size() < opts.max_output)
-          out.output.append(buf, std::min<size_t>(n, opts.max_output - out.output.size()));
-      } else if (n == 0 || errno != EAGAIN) {
-        open_pipe = false;
-      }
+    pollfd pfds[2] = {{out_open ? pipefd[0] : -1, POLLIN, 0}, {err_open ? errfd[0] : -1, POLLIN, 0}};
+    if (poll(pfds, 2, 100) > 0) {
+      if (pfds[0].revents) drain(pipefd[0], out.output, out_open);
+      if (pfds[1].revents) drain(errfd[0], out.error, err_open);
     }
   }
   close(pipefd[0]);
+  if (opts.separate_stderr) close(errfd[0]);
   if (out.timed_out || out.cancelled) {
     kill(-pid, SIGTERM);
     usleep(200'000);
@@ -104,7 +130,32 @@ Result<Output> run(const std::vector<std::string>& argv, const Options& opts) {
   waitpid(pid, &status, 0);
   if (WIFEXITED(status)) out.exit_code = WEXITSTATUS(status);
   else if (WIFSIGNALED(status)) out.exit_code = 128 + WTERMSIG(status);
+  if (!input_path.empty()) unlink(input_path.c_str());
   return out;
+}
+
+bool termux() {
+  static const bool yes = [] {
+    const char* v = std::getenv("TERMUX_VERSION");
+    const char* prefix = std::getenv("PREFIX");
+    return (v && *v) || (prefix && std::string_view(prefix).find("com.termux") != std::string_view::npos);
+  }();
+  return yes;
+}
+
+void open_url(const std::string& url) {
+  std::string q = "'";
+  for (char c : url) q += c == '\'' ? std::string("'\\''") : std::string(1, c);
+  q += "'";
+  std::string opener;
+  if (const char* o = std::getenv("SHAMAN_OPEN"); o && *o) opener = o;
+#if defined(__APPLE__)
+  else opener = "open";
+#else
+  else if (termux()) opener = "termux-open-url";
+  else opener = "xdg-open";
+#endif
+  shell(opener + " " + q + " >/dev/null 2>&1 &", {.timeout = std::chrono::seconds(10)});
 }
 
 Result<Output> shell(const std::string& command, const Options& opts) {
@@ -147,6 +198,7 @@ Child& Child::operator=(Child&& o) noexcept {
   std::swap(pid_, o.pid_);
   std::swap(in_, o.in_);
   std::swap(out_, o.out_);
+  std::swap(job_, o.job_);
   std::swap(buf_, o.buf_);
   return *this;
 }

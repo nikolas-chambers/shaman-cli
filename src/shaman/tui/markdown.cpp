@@ -1,4 +1,5 @@
 #include "shaman/tui/markdown.hpp"
+#include "shaman/tui/theme.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -12,8 +13,6 @@ constexpr const char* reset = "\x1b[0m";
 constexpr const char* bold = "\x1b[1m";
 constexpr const char* italic = "\x1b[3m";
 constexpr const char* dim = "\x1b[2m";
-constexpr const char* code = "\x1b[36m";
-constexpr const char* heading = "\x1b[1;35m";
 }  // namespace style
 
 size_t display_width(std::string_view s) {
@@ -131,7 +130,7 @@ static std::string inline_md(const std::string& s) {
   for (size_t i = 0; i < s.size(); ++i) {
     if (s[i] == '`') {
       code = !code;
-      out += code ? style::code : std::string(style::reset) + (b ? style::bold : "") + (it ? style::italic : "");
+      out += code ? theme().code : std::string(style::reset) + (b ? style::bold : "") + (it ? style::italic : "");
       continue;
     }
     if (!code && s.compare(i, 2, "**") == 0) {
@@ -227,12 +226,12 @@ std::vector<std::string> render_markdown(const std::string& text, size_t width) 
       continue;
     }
     if (fence) {
-      for (auto& l : wrap(std::string(style::code) + line, width - 2)) out.push_back(std::string(style::dim) + glyph("│ ", "| ") + style::reset + l);
+      for (auto& l : wrap(std::string(theme().code) + line, width - 2)) out.push_back(std::string(style::dim) + glyph("│ ", "| ") + style::reset + l);
       continue;
     }
     if (t.starts_with("#")) {
       auto h = t.substr(t.find_first_not_of('#'));
-      for (auto& l : wrap(std::string(style::heading) + str::trim(h), width)) out.push_back(l);
+      for (auto& l : wrap(std::string(theme().heading) + str::trim(h), width)) out.push_back(l);
       continue;
     }
     if (t.starts_with("> ")) {

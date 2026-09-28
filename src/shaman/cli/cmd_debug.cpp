@@ -1,10 +1,12 @@
 // `shaman debug <what>`: inspect how shaman is wired without running a model.
 #include <format>
+#include <chrono>
 #include <iostream>
 
 #include "shaman/cli/commands.hpp"
 #include "shaman/command/command.hpp"
 #include "shaman/core/paths.hpp"
+#include "shaman/index/index.hpp"
 #include "shaman/core/process.hpp"
 #include "shaman/session/system_prompt.hpp"
 #include "shaman/skill/skill.hpp"
@@ -15,9 +17,18 @@ int cmd_debug(App& app, const Args& args) {
   auto& pos = args.positional;
   auto what = pos.size() > 1 ? pos[1] : "";
   if (what == "paths") {
+    if (auto root = paths::portable_root()) std::cout << "portable " << root->string() << "\n";
     std::cout << "config   " << paths::config_dir().string() << "\ndata     " << paths::data_dir().string()
               << "\ncache    " << paths::cache_dir().string() << "\nproject  " << app.root.string()
               << "\nsessions " << app.store->dir().string() << "\nauth     " << auth::Store::default_path().string() << "\n";
+  } else if (what == "index") {  // shaman debug index [query]: build the symbol index, show timing and matches
+    auto t0 = std::chrono::steady_clock::now();
+    index::Index idx(app.root, paths::data_dir() / "projects" / paths::project_id(app.root) / "index.json");
+    idx.refresh();
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+    std::cout << idx.file_count() << " files, " << idx.symbol_count() << " symbols in " << ms << " ms\n";
+    if (args.positional.size() > 2)
+      for (auto& s : idx.find(args.positional[2], 20)) std::cout << "  " << s.file << ":" << s.line << "  " << s.kind << " " << s.name << "\n";
   } else if (what == "config") {
     std::cout << "sources:\n";
     for (auto& s : app.config.sources) std::cout << "  " << s.string() << "\n";
@@ -66,7 +77,7 @@ int cmd_debug(App& app, const Args& args) {
     for (auto& s : skill::discover(app.root))
       std::cout << "  " << s.name << "  (" << s.source << ")\n    " << s.description << "\n";
   } else if (what == "commands") {
-    for (auto& c : command::discover(app.config, app.root)) std::cout << "  /" << c.name << "  (" << c.source << ")  " << c.description << "\n";
+    for (auto& c : app.commands()) std::cout << "  /" << c.name << "  (" << c.source << ")  " << c.description << "\n";
   } else if (what == "plugins") {
     for (auto& p : app.plugins.plugins()) std::cout << "  " << p->name() << "\n";
     if (app.plugins.empty()) std::cout << "no plugins loaded\n";

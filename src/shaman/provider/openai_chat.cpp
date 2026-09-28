@@ -64,6 +64,8 @@ Json openai_chat_body(const ChatRequest& req) {
   }
   if (req.temperature) body["temperature"] = *req.temperature;
   if (req.max_tokens > 0) body["max_tokens"] = req.max_tokens;
+  if (!req.reasoning_effort.empty()) body["reasoning_effort"] = req.reasoning_effort;
+  if (req.extra_body.is_object()) body.merge_patch(req.extra_body);
   return body;
 }
 
@@ -162,7 +164,10 @@ Result<void> OpenAIChatProvider::stream(const ChatRequest& req, const EventSink&
   hr.body = body.dump();
   hr.cancel = req.cancel;
   hr.headers = {{"Content-Type", "application/json"}, {"Accept", "text/event-stream"}};
-  if (!endpoint_.api_key.empty()) hr.headers.emplace_back("Authorization", "Bearer " + endpoint_.api_key);
+  if (!endpoint_.api_key.empty()) {
+    if (endpoint_.auth_header.empty()) hr.headers.emplace_back("Authorization", "Bearer " + endpoint_.api_key);
+    else hr.headers.emplace_back(endpoint_.auth_header, endpoint_.api_key);
+  }
   for (auto& [k, v] : endpoint_.headers) hr.headers.emplace_back(k, v);
 
   OpenAIChatDecoder decoder;

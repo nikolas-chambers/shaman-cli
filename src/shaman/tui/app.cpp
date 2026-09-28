@@ -7,17 +7,22 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <map>
 #include <mutex>
 #include <sstream>
 #include <thread>
 
 #include "shaman/command/command.hpp"
 #include "shaman/core/paths.hpp"
+#include "shaman/extras/clipboard.hpp"
 #include "shaman/extras/notify.hpp"
 #include "shaman/core/process.hpp"
 #include "shaman/core/strings.hpp"
 #include "shaman/session/archive.hpp"
 #include "shaman/tui/markdown.hpp"
+#include "shaman/tui/theme.hpp"
+#include "shaman/update/update.hpp"
+#include "shaman/version.hpp"
 #include "shaman/tui/terminal.hpp"
 #include "shaman/version.hpp"
 
@@ -28,10 +33,6 @@ namespace {
 constexpr const char* R = "\x1b[0m";
 constexpr const char* DIM = "\x1b[2m";
 constexpr const char* BOLD = "\x1b[1m";
-constexpr const char* ACCENT = "\x1b[35m";
-constexpr const char* CYAN = "\x1b[36m";
-constexpr const char* RED = "\x1b[31m";
-constexpr const char* YELLOW = "\x1b[33m";
 constexpr const char* INVERT = "\x1b[7m";
 
 struct Block {
@@ -72,14 +73,36 @@ class Ui {
     auto s = open_session();
     if (!s) return std::cerr << "error: " << s.error().message << "\n", 1;
     session_ = *s;
-    commands_ = command::discover(app_.config, app_.root);
+    commands_ = app_.commands();
+    {
+      auto tui_cfg = app_.config.raw.value("tui", Json::object());
+      if (!tui_cfg.contains("theme") && app_.config.raw.contains("theme")) tui_cfg["theme"] = app_.config.raw["theme"];
+      apply_theme_config(tui_cfg);
+      mouse_ = tui_cfg.value("mouse", false);
+      if (auto kb = tui_cfg.find("keybinds"); kb != tui_cfg.end() && kb->is_object())
+        for (auto& [key, action] : kb->items())
+          if (key.size() == 6 && key.starts_with("ctrl+") && action.is_string() && key[5] >= 'a' && key[5] <= 'z' && key[5] != 'c')
+            keybinds_[key[5]] = action.get<std::string>();
+      statusline_cmd_ = tui_cfg.value("statusline", std::string());
+    }
     runner_ = std::make_unique<session::Runner>(app_.services([this](const permission::Request& r) { return ask(r); },
                                                               &cancel_, opts_.allow_all,
                                                               [this](const tool::Question& q) { return ask_question(q); }));
+    if (opts_.accept_edits) runner_->set_mode(permission::Mode::accept_edits);
+    if (!opts_.effort.empty()) runner_->set_effort(opts_.effort);
     if (opts_.model) model_ = *opts_.model;
+    refresh_statusline();
     load_history();
     load_transcript();
     if (!term_.ok()) return std::cerr << "not a terminal\n", 1;
+    if (mouse_) term_.enable_mouse(true);
+    std::thread([this, enabled = app_.config.raw.value("update_check", true)] {  // quiet, daily, in the background
+      if (auto v = update::newer_version(enabled)) {
+        std::lock_guard lock(mu_);
+        blocks_.push_back({Block::notice, std::format("shaman {} is available (you have {}): run `shaman upgrade`", *v, kVersion)});
+        dirty_ = true;
+      }
+    }).detach();
     if (opts_.prompt) submit(*opts_.prompt);
 
     while (!quit_) {
@@ -138,13 +161,18 @@ class Ui {
   }
 
   void new_session() {
+    if (busy_) return add_block({Block::notice, "a turn is running: press Esc to stop it first (or use the web UI for parallel sessions)"});
     auto s = app_.store->create(session_.agent, "");
     if (!s) return add_block({Block::error, s.error().message});
     session_ = *s;
     blocks_.clear();
+    auto mode = runner_ ? runner_->mode() : permission::Mode::normal;
+    auto effort = runner_ ? runner_->effort() : opts_.effort;
     runner_ = std::make_unique<session::Runner>(app_.services([this](const permission::Request& r) { return ask(r); },
                                                               &cancel_, opts_.allow_all,
                                                               [this](const tool::Question& q) { return ask_question(q); }));
+    runner_->set_mode(mode);
+    runner_->set_effort(effort);
   }
 
   // ---- permission dialog ----
@@ -188,10 +216,118 @@ class Ui {
     history_.push_back(text);
     hist_pos_ = history_.size();
     if (text.starts_with("/") && slash(text)) return;
+    if (text.size() > 1 && text[0] == '!') return run_shell(text.substr(1));  // !cmd: run it yourself
+    if (text.starts_with("# ")) return remember(text.substr(2));             // # note: project memory
     if (busy_) return add_block({Block::notice, "busy; press Esc to stop the current turn"});
     blocks_.push_back({Block::user, text});
     scroll_ = 0;
-    start(text, {});
+    if (!shell_context_.empty()) text = shell_context_ + "\n" + text, shell_context_.clear();
+    session::PromptOptions po;
+    po.attachments = std::exchange(attachments_, {});
+    start(text, po);
+  }
+
+  // !cmd: runs in the project root without asking (you typed it); the output goes with your next message.
+  void run_shell(const std::string& cmd) {
+    blocks_.push_back({Block::user, "!" + cmd});
+    std::thread([this, cmd] {
+      auto r = process::shell(cmd, {.cwd = app_.root, .timeout = std::chrono::seconds(120)});
+      std::string out = r ? r->output : r.error().message;
+      int code = r ? r->exit_code : -1;
+      if (out.size() > 8000) out = out.substr(0, 4000) + "\n[...]\n" + out.substr(out.size() - 4000);
+      std::lock_guard lock(mu_);
+      blocks_.push_back({Block::tool, std::format("$ {}  (exit {})", cmd, code), out, code != 0});
+      shell_context_ += std::format("I ran `{}` myself (exit {}):\n```\n{}\n```\n", cmd, code, str::trim(out));
+      dirty_ = true;
+    }).detach();
+  }
+
+  // A keybind action: a slash command ("/sessions") or palette, editor, details, paste, copy, mode, clear, new.
+  void run_action(const std::string& a) {
+    if (a.starts_with("/")) return (void)slash(a);
+    if (a == "palette") return palette();
+    if (a == "editor") return editor();
+    if (a == "details") return (void)(details_ = !details_);
+    if (a == "paste") return paste_image();
+    if (a == "copy") return copy_last("");
+    if (a == "mode") return cycle_mode();
+    if (a == "clear") return term_.write("\x1b[2J");
+    if (a == "new") return new_session();
+    add_block({Block::error, "unknown keybind action: " + a});
+  }
+
+  // Ctrl-V / /paste: an image from the clipboard goes with the next message.
+  void paste_image() {
+    auto p = extras::paste_image(paths::data_dir() / "uploads");
+    if (!p) return add_block({Block::error, p.error().message});
+    attachments_.push_back(p->string());
+    add_block({Block::notice, std::format("image attached ({}); it goes with your next message", p->filename().string())});
+  }
+
+  // /copy: the last reply (or /copy code: its last code block) to the clipboard. Also sends OSC 52, which
+  // terminals such as iTerm2, kitty, WezTerm, Windows Terminal and tmux turn into a clipboard write, even over SSH.
+  void copy_last(const std::string& what) {
+    std::string text;
+    for (auto it = blocks_.rbegin(); it != blocks_.rend() && text.empty(); ++it)
+      if (it->kind == Block::assistant) text = it->text;
+    if (text.empty()) return add_block({Block::error, "nothing to copy yet"});
+    if (what == "code") {
+      auto end = text.rfind("```");
+      auto start = end == std::string::npos || end == 0 ? std::string::npos : text.rfind("```", end - 1);
+      if (start == std::string::npos) return add_block({Block::error, "no code block in the last reply"});
+      auto body = text.substr(start + 3, end - start - 3);
+      text = body.substr(body.find('\n') == std::string::npos ? 0 : body.find('\n') + 1);
+    }
+    term_.write("\x1b]52;c;" + str::base64_encode(text) + "\a");
+    auto r = extras::copy_text(text);
+    add_block({Block::notice, std::format("copied {} characters{}", text.size(), r ? " (" + *r + ")" : " (via the terminal)")});
+  }
+
+  // # note: appended to .shaman/MEMORY.md, which every session's system prompt includes.
+  void remember(const std::string& note) {
+    auto path = app_.root / ".shaman" / "MEMORY.md";
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    std::ofstream(path, std::ios::app) << "- " << str::trim(note) << "\n";
+    add_block({Block::notice, "saved to project memory (.shaman/MEMORY.md)"});
+  }
+
+  void show_context() {
+    auto r = runner_->context_report(session_, model_.empty() ? std::nullopt : std::optional<std::string>(model_));
+    if (!r) return add_block({Block::error, r.error().message});
+    auto used = r->system + r->tools + r->messages;
+    auto pct = [&](int64_t n) { return r->window ? double(n) * 100.0 / double(r->window) : 0.0; };
+    int width = 40, filled = int(std::min(100.0, pct(used)) * width / 100);
+    std::string bar = std::string(size_t(filled), '#') + std::string(size_t(width - filled), '.');
+    add_block({Block::notice,
+               std::format("context  {}  [{}] {:.1f}% of {} tokens\n"
+                           "  system prompt   {:>8}  ({:.1f}%)\n"
+                           "  tools ({:>2})      {:>8}  ({:.1f}%)\n"
+                           "  messages ({:>3})  {:>8}  ({:.1f}%, tool output {})\n"
+                           "  free            {:>8}\n"
+                           "Old tool outputs are trimmed from requests past the prune point and the conversation is summarised near "
+                           "the limit; tune both with \"context\" in config (per model too). /compact summarises now.",
+                           r->model, bar, pct(used), r->window, r->system, pct(r->system), r->tool_count, r->tools, pct(r->tools),
+                           r->message_count, r->messages, pct(r->messages), r->tool_outputs, std::max<int64_t>(0, r->window - used))});
+  }
+
+  // Custom status line: the command gets the session as JSON on stdin and prints one line.
+  void refresh_statusline() {
+    if (statusline_cmd_.empty()) return;
+    Json info = {{"model", model_.empty() ? session_.model : model_}, {"agent", session_.agent}, {"session_id", session_.id},
+                 {"title", session_.title}, {"cwd", app_.root.string()}, {"cost", session_.cost},
+                 {"input_tokens", session_.usage.input}, {"output_tokens", session_.usage.output},
+                 {"mode", permission::to_string(runner_->mode())}, {"effort", runner_->effort()}};
+    std::thread([this, info] {
+      process::Options o{.cwd = app_.root, .timeout = std::chrono::seconds(5)};
+      o.input = info.dump();
+      o.separate_stderr = true;
+      auto r = process::shell(statusline_cmd_, o);
+      auto line = r ? str::trim(r->output.substr(0, r->output.find('\n'))) : std::string();
+      std::lock_guard lock(mu_);
+      statusline_ = line;
+      dirty_ = true;
+    }).detach();
   }
 
   void start(const std::string& text, session::PromptOptions po) {
@@ -212,6 +348,7 @@ class Ui {
       if (cancel_) blocks_.push_back({Block::notice, "stopped"});
       busy_ = false;
       dirty_ = true;
+      refresh_statusline();
     });
   }
 
@@ -233,6 +370,30 @@ class Ui {
       return true;
     }
     if (cmd == "agent") return set_agent(arg), true;
+    if (cmd == "mode") return set_mode(arg), true;
+    if (cmd == "context") return show_context(), true;
+    if (cmd == "paste") return paste_image(), true;
+    if (cmd == "copy") return copy_last(arg), true;
+    if (cmd == "mouse") {
+      mouse_ = !mouse_;
+      term_.enable_mouse(mouse_);
+      return add_block({Block::notice, mouse_ ? "mouse wheel scrolling on (hold Shift to select text)" : "mouse off"}), true;
+    }
+    if (cmd == "theme") {
+      if (arg.empty()) {
+        std::vector<PickItem> items;
+        for (auto& n : theme_names()) items.push_back({n, n == theme().name ? "current" : "", [this, n] { set_theme(n); dirty_ = true; }});
+        return open_picker("Theme", std::move(items)), true;
+      }
+      if (!set_theme(arg)) return add_block({Block::error, "themes: " + str::join(theme_names(), ", ")}), true;
+      return add_block({Block::notice, "theme: " + arg}), true;
+    }
+    if (cmd == "effort") {
+      if (arg != "low" && arg != "medium" && arg != "high" && arg != "off" && arg != "default")
+        return add_block({Block::error, "effort: low, medium, high, off or default (the model's own setting)"}), true;
+      runner_->set_effort(arg == "default" ? "" : arg);
+      return add_block({Block::notice, "reasoning effort: " + arg}), true;
+    }
     if (cmd == "details") return details_ = !details_, true;
     if (cmd == "goal") {
       session_.goal = arg;
@@ -333,6 +494,44 @@ class Ui {
     app_.store->save(session_);
   }
 
+  // Shift-Tab: default -> accept edits -> plan -> (yolo, if started with --yolo) -> default
+  void cycle_mode() {
+    using permission::Mode;
+    if (session_.agent == "plan") {
+      set_agent(prev_agent_.empty() || prev_agent_ == "plan" ? "build" : prev_agent_);
+      runner_->set_mode(opts_.allow_all ? Mode::yolo : Mode::normal);
+    } else if (runner_->mode() == Mode::normal) {
+      runner_->set_mode(Mode::accept_edits);
+    } else if (runner_->mode() == Mode::accept_edits) {
+      prev_agent_ = session_.agent;
+      runner_->set_mode(Mode::normal);
+      set_agent("plan");
+    } else {
+      runner_->set_mode(Mode::normal);
+    }
+  }
+
+  void set_mode(const std::string& name) {
+    if (name == "plan") {
+      if (session_.agent != "plan") prev_agent_ = session_.agent;
+      return set_agent("plan");
+    }
+    auto m = permission::parse_mode(name);
+    if (!m) return add_block({Block::error, "modes: default, acceptEdits, plan, yolo"});
+    if (session_.agent == "plan") set_agent(prev_agent_.empty() ? "build" : prev_agent_);
+    runner_->set_mode(*m);
+    add_block({Block::notice, std::string("mode: ") + permission::to_string(*m)});
+  }
+
+  std::string mode_label() const {
+    if (session_.agent == "plan") return std::string(glyph("⏸ ", "")) + "plan mode";
+    switch (runner_->mode()) {
+      case permission::Mode::accept_edits: return std::string(glyph("⏵⏵ ", ">> ")) + "accept edits";
+      case permission::Mode::yolo: return std::string(glyph("⚠ ", "! ")) + "yolo";
+      default: return "";
+    }
+  }
+
   void cycle_agent() {
     std::vector<std::string> primaries;
     for (auto* a : app_.agents->list())
@@ -344,9 +543,11 @@ class Ui {
 
   void help() {
     add_block({Block::notice,
-               "Enter send · Alt/Ctrl-J newline · Tab complete or switch agent · Up/Down history · PgUp/PgDn scroll\n"
-               "Esc stop turn · Ctrl-P palette · Ctrl-E external editor · Ctrl-O tool details · Ctrl-C/Ctrl-D quit\n"
-               "/new /sessions /models /model <id> /agents /agent <name> /goal <text> /undo /revert /fork /compact\n"
+               "Enter send · Alt/Ctrl-J newline · Tab complete or switch agent · Shift-Tab mode (accept edits, plan)\n"
+               "Up/Down history · PgUp/PgDn scroll · "
+               "Esc stop turn · Ctrl-P palette · Ctrl-E external editor · Ctrl-O tool details · Ctrl-V paste image · Ctrl-C/D quit\n"
+               "!cmd runs a shell command (its output goes with your next message) · # note saves to project memory\n"
+               "/new /sessions /models /model <id> /agents /agent <name> /mode <m> /effort <e> /theme /context /copy [code] /paste /goal <text> /undo /revert /fork /compact\n"
                "/export [md|json|html] /share\n"
                "/cost /todos /details /editor /help /exit, plus custom commands (Ctrl-P)"});
   }
@@ -363,6 +564,7 @@ class Ui {
     std::vector<PickItem> items;
     for (auto& s : app_.store->list())
       items.push_back({s.title.empty() ? "(untitled) " + s.id : s.title, s.id, [this, s] {
+                         if (busy_) return add_block({Block::notice, "a turn is running: press Esc to stop it first"});
                          session_ = s;
                          load_transcript();
                        }});
@@ -446,7 +648,7 @@ class Ui {
     auto word = input_.substr(word_start, cursor_ - word_start);
     std::vector<std::string> options;
     if (word_start == 0 && word.starts_with("/")) {
-      for (auto name : {"new", "goal", "revert", "fork", "sessions", "models", "model", "agents", "agent", "undo", "compact", "export", "share",
+      for (auto name : {"new", "goal", "mode", "effort", "theme", "context", "mouse", "paste", "copy", "revert", "fork", "sessions", "models", "model", "agents", "agent", "undo", "compact", "export", "share",
                         "cost", "todos", "details", "editor", "help", "exit"})
         if (std::string(name).starts_with(word.substr(1))) options.push_back("/" + std::string(name));
       for (auto& c : commands_)
@@ -565,10 +767,12 @@ class Ui {
           cursor_ = input_.size();
         }
         break;
+      case KeyType::wheel_up: scroll_ += 3; break;
+      case KeyType::wheel_down: scroll_ = std::max(0, scroll_ - 3); break;
       case KeyType::pgup: scroll_ += std::max(1, term_.size().rows / 2); break;
       case KeyType::pgdn: scroll_ = std::max(0, scroll_ - std::max(1, term_.size().rows / 2)); break;
       case KeyType::tab: complete(); break;
-      case KeyType::shift_tab: cycle_agent(); break;
+      case KeyType::shift_tab: cycle_mode(); break;
       case KeyType::esc:
         if (busy_) cancel_ = true;
         else input_.clear(), cursor_ = 0;
@@ -577,6 +781,10 @@ class Ui {
         if (input_.empty()) quit_ = true;
         break;
       case KeyType::ctrl:
+        if (auto kb = keybinds_.find(k.ctrl); kb != keybinds_.end()) {  // "tui": {"keybinds": {"ctrl+g": "/sessions"}}
+          run_action(kb->second);
+          break;
+        }
         switch (k.ctrl) {
           case 'c':
             if (busy_) cancel_ = true;
@@ -599,6 +807,7 @@ class Ui {
             break;
           }
           case 'p': palette(); break;
+          case 'v': paste_image(); break;
           case 'o': details_ = !details_; break;
           case 'l': term_.write("\x1b[2J"); break;
           case 'n': new_session(); break;
@@ -616,7 +825,7 @@ class Ui {
       switch (b.kind) {
         case Block::user: {
           out.push_back("");
-          for (auto& l : wrap(std::string(BOLD) + b.text, width - 2)) out.push_back(std::string(ACCENT) + glyph("▌ ", "| ") + R + l);
+          for (auto& l : wrap(std::string(BOLD) + b.text, width - 2)) out.push_back(std::string(theme().accent) + glyph("▌ ", "| ") + R + l);
           out.push_back("");
           break;
         }
@@ -627,7 +836,7 @@ class Ui {
           for (auto& l : wrap(std::string(DIM) + "\x1b[3m" + b.text, width, "  ")) out.push_back(l);
           break;
         case Block::tool: {
-          auto line = std::string(b.failed ? RED : CYAN) + (b.failed ? glyph("✗ ", "x ") : glyph("› ", "> ")) + R + DIM + b.text + R;
+          auto line = std::string(b.failed ? theme().del : theme().info) + (b.failed ? glyph("✗ ", "x ") : glyph("› ", "> ")) + R + DIM + b.text + R;
           out.push_back(line);
           if (!b.diff.empty()) {  // edits show their diff inline; Ctrl-O shows all of it
             auto ls = str::lines(b.diff);
@@ -638,7 +847,7 @@ class Ui {
                 out.push_back(std::format("    {}... {} more lines (Ctrl-O){}", DIM, ls.size() - shown, R));
                 break;
               }
-              const char* c = l.starts_with("+") ? "\x1b[32m" : l.starts_with("-") ? "\x1b[31m" : l.starts_with("@@") ? CYAN : DIM;
+              std::string c = l.starts_with("+") ? theme().add : l.starts_with("-") ? theme().del : l.starts_with("@@") ? theme().info : std::string(DIM);
               out.push_back("    " + std::string(c) + clip(l, width - 4) + R);
             }
           }
@@ -650,11 +859,13 @@ class Ui {
           }
           break;
         }
-        case Block::notice:
-          for (auto& l : wrap(std::string(YELLOW) + b.text, width)) out.push_back(l);
+        case Block::notice:  // wrap line by line: wrap() does not expect embedded newlines
+          for (auto& line : str::lines(b.text))
+            for (auto& l : wrap(std::string(theme().warn) + line, width)) out.push_back(l);
           break;
         case Block::error:
-          for (auto& l : wrap(std::string(RED) + "error: " + b.text, width)) out.push_back(l);
+          for (auto& line : str::lines("error: " + b.text))
+            for (auto& l : wrap(std::string(theme().del) + line, width)) out.push_back(l);
           break;
       }
     }
@@ -694,7 +905,7 @@ class Ui {
     if (model.empty())
       if (auto d = app_.providers->default_model()) model = d->ref();
     auto dot = glyph(" · ", " | ");
-    put(std::format(" {}shaman{}{}{}{}{}{}{}{}{}", BOLD, R, DIM, dot, R + std::string(ACCENT), agent ? agent->name : session_.agent,
+    put(std::format(" {}shaman{}{}{}{}{}{}{}{}{}", BOLD, R, DIM, dot, R + std::string(theme().accent), agent ? agent->name : session_.agent,
                     R + std::string(DIM) + dot, model, dot, (session_.title.empty() ? std::string("new session") : session_.title) + R));
     for (int i = 0; i < body_h; ++i) {
       int idx = first + i;
@@ -703,10 +914,14 @@ class Ui {
     static const char* spinner[] = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
     static const char* ascii_spinner[] = {"|", "/", "-", "\\"};
     std::string spin = unicode() ? spinner[spin_ % 10] : ascii_spinner[spin_ % 4];
-    std::string status = busy_ ? std::format(" {}{} working{} {}esc to stop{}", ACCENT, spin, R, DIM, R)
-                               : std::format(" {}enter send{}tab agent{}ctrl-p commands{}", DIM, dot, dot, R);
+    std::string status = busy_ ? std::format(" {}{} working{} {}esc to stop{}", theme().accent, spin, R, DIM, R)
+                               : std::format(" {}enter send{}shift-tab mode{}ctrl-p commands{}", DIM, dot, dot, R);
+    if (auto m = mode_label(); !m.empty()) status = std::format(" {}{}{}{}", theme().accent, m, R, status);
+    if (auto e = runner_->effort(); !e.empty()) status += std::format("{}{}effort {}{}", DIM, dot, e, R);
+    if (!attachments_.empty()) status += std::format("{}{}{} image{}{}", DIM, dot, attachments_.size(), attachments_.size() > 1 ? "s" : "", R);
     auto right_status = std::format("{}{}{} in{}{} out{}${:.4f}{}{} ", DIM, scroll_ ? std::format("{}{}{}", glyph("↑", "^"), scroll_, dot) : "",
                                     session_.usage.input, dot, session_.usage.output, dot, session_.cost, details_ ? dot + "details" : "", R);
+    if (!statusline_.empty()) right_status = std::format("{}{}{} ", DIM, clip(statusline_, size_t(std::max(10, sz.cols / 2))), R);
     int pad = sz.cols - 1 - int(display_width(status)) - int(display_width(right_status));  // never touch the last column
     put(status + std::string(size_t(std::max(1, pad)), ' ') + right_status);
     put(std::string(DIM) + std::string(size_t(sz.cols - 1), '-'));
@@ -714,7 +929,7 @@ class Ui {
     // Input rows; compute the cursor's row/col.
     int start_row = std::max(0, int(in_rows.size()) - in_h);
     for (int i = 0; i < in_h; ++i)
-      put((i == 0 && start_row == 0 ? std::string(ACCENT) + glyph("› ", "> ") + R : "  ") + in_rows[start_row + i]);
+      put((i == 0 && start_row == 0 ? std::string(theme().accent) + glyph("› ", "> ") + R : "  ") + in_rows[start_row + i]);
     auto before = input_.substr(0, cursor_);
     auto before_lines = str::split(before, '\n');
     int crow = 0, ccol = 0;
@@ -736,15 +951,15 @@ class Ui {
 
   std::string box(Size sz, int w, int h, const std::string& title, const std::vector<std::string>& rows) {
     int top = std::max(1, (sz.rows - h) / 2), left = std::max(1, (sz.cols - w) / 2);
-    std::string out = std::format("\x1b[{};{}H{}{}{}{}{} {}{}{}", top, left, ACCENT, glyph("╭─ ", "+- "), BOLD, title, R + std::string(ACCENT),
+    std::string out = std::format("\x1b[{};{}H{}{}{}{}{} {}{}{}", top, left, theme().accent, glyph("╭─ ", "+- "), BOLD, title, R + std::string(theme().accent),
                                   std::string(size_t(std::max(0, w - 5 - int(display_width(title)))), '-'), glyph("╮", "+"), R);
     for (int i = 0; i < h - 2; ++i) {
       auto row = i < int(rows.size()) ? rows[i] : "";
       int padn = w - 4 - int(display_width(row));
-      out += std::format("\x1b[{};{}H{}{}{} {}{} {}{}{}", top + 1 + i, left, ACCENT, glyph("│", "|"), R, clip(row, size_t(w - 4)),
-                         std::string(size_t(std::max(0, padn)), ' '), ACCENT, glyph("│", "|"), R);
+      out += std::format("\x1b[{};{}H{}{}{} {}{} {}{}{}", top + 1 + i, left, theme().accent, glyph("│", "|"), R, clip(row, size_t(w - 4)),
+                         std::string(size_t(std::max(0, padn)), ' '), theme().accent, glyph("│", "|"), R);
     }
-    out += std::format("\x1b[{};{}H{}{}{}{}{}", top + h - 1, left, ACCENT, glyph("╰", "+"), std::string(size_t(w - 2), '-'), glyph("╯", "+"), R);
+    out += std::format("\x1b[{};{}H{}{}{}{}{}", top + h - 1, left, theme().accent, glyph("╰", "+"), std::string(size_t(w - 2), '-'), glyph("╯", "+"), R);
     return out;
   }
 
@@ -800,6 +1015,12 @@ class Ui {
   session::Info session_;
   std::vector<command::Command> commands_;
   std::string model_, shown_model_;
+  std::string prev_agent_;  // to return to when leaving plan mode
+  std::string shell_context_;  // output of !commands, sent with the next message
+  bool mouse_ = false;
+  std::vector<std::string> attachments_;  // pasted images for the next message
+  std::map<char, std::string> keybinds_;  // ctrl letter -> action
+  std::string statusline_cmd_, statusline_;  // "tui": {"statusline": "<command>"}: its first line of output
 
   std::recursive_mutex mu_;
   std::condition_variable_any perm_cv_;

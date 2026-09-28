@@ -52,6 +52,8 @@ std::unique_ptr<Tool> make_skill(const fs::path& root);
 std::unique_ptr<Tool> make_lsp();
 std::unique_ptr<Tool> make_multiedit();
 std::unique_ptr<Tool> make_question();
+std::unique_ptr<Tool> make_plan_exit();
+std::unique_ptr<Tool> make_symbols(const fs::path& root);
 std::unique_ptr<Tool> make_batch();
 std::unique_ptr<Tool> make_http();
 std::unique_ptr<Tool> make_notebook_edit();

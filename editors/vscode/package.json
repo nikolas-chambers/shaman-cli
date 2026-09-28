@@ -1,0 +1,45 @@
+{
+  "name": "shaman-vscode",
+  "displayName": "Shaman",
+  "description": "Your link between worlds: the shaman coding agent inside VS Code.",
+  "version": "0.1.0",
+  "publisher": "nikolas-chambers",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/nikolas-chambers/shaman-cli" },
+  "icon": "media/icon.png",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["AI", "Chat", "Programming Languages"],
+  "main": "./extension.js",
+  "activationEvents": ["onView:shaman.chat", "onCommand:shaman.open"],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [{ "id": "shaman", "title": "Shaman", "icon": "media/icon.svg" }]
+    },
+    "views": {
+      "shaman": [{ "type": "webview", "id": "shaman.chat", "name": "Chat" }]
+    },
+    "commands": [
+      { "command": "shaman.open", "title": "Shaman: Open Chat" },
+      { "command": "shaman.askSelection", "title": "Shaman: Ask About Selection" },
+      { "command": "shaman.addFile", "title": "Shaman: Add Current File to Chat" },
+      { "command": "shaman.openInBrowser", "title": "Shaman: Open Chat in Browser" },
+      { "command": "shaman.restart", "title": "Shaman: Restart Server" }
+    ],
+    "menus": {
+      "editor/context": [
+        { "command": "shaman.askSelection", "when": "editorHasSelection", "group": "shaman@1" },
+        { "command": "shaman.addFile", "group": "shaman@2" }
+      ]
+    },
+    "keybindings": [
+      { "command": "shaman.askSelection", "key": "ctrl+alt+s", "mac": "cmd+alt+s", "when": "editorTextFocus" }
+    ],
+    "configuration": {
+      "title": "Shaman",
+      "properties": {
+        "shaman.path": { "type": "string", "default": "shaman", "description": "Path to the shaman executable." },
+        "shaman.extraArgs": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Extra arguments for `shaman serve`, e.g. [\"--mode\", \"acceptEdits\"]." }
+      }
+    }
+  }
+}

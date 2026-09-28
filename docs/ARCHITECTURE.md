@@ -4,7 +4,7 @@ Everything lives in `src/shaman/`, one directory per module. Dependencies point 
 
 ```
 cli/         entry point, subcommands, line-based REPL, terminal/JSON rendering, `shaman debug`
-tui/         full-screen UI: raw terminal, markdown rendering, pickers, dialogs
+tui/         full-screen UI: raw terminal, markdown rendering, themes, pickers, dialogs
 server/      HTTP API + embedded web UI (web/index.html)
 acp/         Agent Client Protocol for editors
 session/     the agent loop (runner), store, system prompt, snapshots, input, formatters, archive, secret redaction
@@ -15,14 +15,17 @@ lsp/         language-server client and manager
 mcp/         MCP client (stdio, streamable HTTP, OAuth) and MCP serve mode
 plugin/      out-of-process plugin host
 permission/  layered allow/ask/deny rules and the interactive gate
-provider/    Provider interface, OpenAI-chat and Anthropic protocols, catalog, registry
+provider/    Provider interface, OpenAI chat, OpenAI Responses and Anthropic protocols, catalog, registry
 auth/        saved API keys                 github/  Actions integration     update/  self-update
-extras/      notifications, git worktrees, cron scheduling
+extras/      notifications, git worktrees, cron scheduling, clipboard
+hooks/       user shell hooks around tools, prompts and stopping
+index/       codebase symbol index (per-language patterns, cached, incremental) behind the symbols tool
+sandbox/     bubblewrap / sandbox-exec wrapping for bash
 diff/        Myers unified diffs for edit tools
 llm/         provider-neutral messages, requests and stream events
 http/        libcurl transport and SSE parser
 config/      layered JSONC config with {env:} / {file:} substitution
-core/        Result/Error, logging and tracing, paths, strings, processes and sockets (per-OS)
+core/        Result/Error, logging and tracing, paths (XDG or portable), strings, processes and sockets (per-OS)
 apps/        main.cpp (shaman), desktop.cpp (shaman-desktop)
 ```
 
@@ -39,6 +42,14 @@ apps/        main.cpp (shaman), desktop.cpp (shaman-desktop)
    the agent's `max_steps` is reached, or the user cancels. Near the context limit the history is compacted.
 
 Every step emits `session::Events` (rendered by `cli/render`) plus debug logs and trace records.
+
+Around that loop: hooks run before the user message is stored (UserPromptSubmit, SessionStart), around each tool
+(PreToolUse, PostToolUse) and when the model stops (Stop, which can send it back to work). The permission mode lives
+in the runner and every agent's gate follows it, so the UI can change it mid-turn; `plan_exit` hands the rest of a turn
+from the plan agent to build. Per-request settings resolve from the agent, the model entry and `/effort`: temperature,
+reasoning effort, extra body fields, the model's tool filter and its context budget (prune and compaction points).
+Reasoning that must go back to the API (Anthropic signatures, Responses encrypted items) is stored on
+`ReasoningPart` and replayed by that provider only.
 
 Each top-level turn records where its user message starts (`Info::turn_starts`) next to its worktree snapshot
 (`Info::snapshots`). `Runner::revert(n)` restores snapshot `n` and truncates the log there; `Runner::fork(n)` copies

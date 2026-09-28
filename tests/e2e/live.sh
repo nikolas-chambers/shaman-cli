@@ -14,6 +14,7 @@ model="${SHAMAN_LIVE_MODEL:?set SHAMAN_LIVE_MODEL, e.g. google/gemini-2.5-flash}
 tmp="$(mktemp -d)"
 trap '[ "${KEEP:-0}" = 1 ] && echo "kept $tmp" || rm -rf "$tmp"' EXIT
 export XDG_CONFIG_HOME="$tmp/config" XDG_DATA_HOME="$tmp/data" XDG_CACHE_HOME="$tmp/cache"
+export SHAMAN_HOME="$tmp/home"
 export SHAMAN_MODEL="$model"
 project="$tmp/project"
 mkdir -p "$project" && cd "$project" && git init -q . && git config user.email t@t && git config user.name t
@@ -81,7 +82,7 @@ out="$(run --yolo --command init)"
 # 11. LSP diagnostics fed back after an edit (pyright)
 if command -v pyright-langserver >/dev/null; then
   out="$(run --yolo "Create typed.py containing exactly: x: int = \"text\"  (write it verbatim with the write tool, then stop)")"
-  grep -rq "LSP errors in typed.py" "$XDG_DATA_HOME" && ok "lsp diagnostics" || bad "lsp diagnostics" "$out"
+  grep -rq "LSP errors in typed.py" "$SHAMAN_HOME" && ok "lsp diagnostics" || bad "lsp diagnostics" "$out"
 fi
 
 # 12. MCP server + plugin used by the model
@@ -104,7 +105,7 @@ unset SHAMAN_CONFIG_CONTENT
 # 14. built-in skill with a helper script (pdf)
 if python3 -c "import reportlab, pypdf" 2>/dev/null; then
   out="$(run --yolo "Create a one-page PDF named summary.pdf listing the python files in this project as bullets.")"
-  [ -f summary.pdf ] && grep -rq "pdf_tool.py" "$XDG_DATA_HOME" && ok "pdf skill + script" || bad "pdf skill + script" "$out"
+  [ -f summary.pdf ] && grep -rq "pdf_tool.py" "$SHAMAN_HOME" && ok "pdf skill + script" || bad "pdf skill + script" "$out"
 fi
 
 # 15. server + attach + ACP

@@ -16,7 +16,11 @@ namespace shaman::llm {
 enum class Role { user, assistant };
 
 struct TextPart { std::string text; };
-struct ReasoningPart { std::string text; };
+struct ReasoningPart {
+  std::string text;
+  std::string signature;  // Anthropic: signed thinking must be sent back unchanged in tool loops
+  Json meta;              // OpenAI Responses: the reasoning item (with encrypted content), replayed verbatim
+};
 struct ToolCallPart {
   std::string id;
   std::string name;
@@ -65,6 +69,8 @@ struct ChatRequest {
   std::vector<ToolSpec> tools;
   std::optional<double> temperature;
   int max_tokens = 0;  // 0 = provider default
+  std::string reasoning_effort;  // "", "low", "medium", "high": how hard reasoning models think
+  Json extra_body = Json::object();  // provider/model "body" options, merged into the request last
   std::atomic<bool>* cancel = nullptr;
 };
 
@@ -82,10 +88,11 @@ enum class Finish { stop, tool_calls, length, content_filter, unknown };
 // their arguments have finished streaming.
 struct TextDelta { std::string text; };
 struct ReasoningDelta { std::string text; };
+struct ReasoningDone { std::string signature; Json meta; };  // ends a reasoning block
 struct ToolCallEvent { ToolCallPart call; };
 struct UsageEvent { Usage usage; };
 struct FinishEvent { Finish reason; };
-using StreamEvent = std::variant<TextDelta, ReasoningDelta, ToolCallEvent, UsageEvent, FinishEvent>;
+using StreamEvent = std::variant<TextDelta, ReasoningDelta, ReasoningDone, ToolCallEvent, UsageEvent, FinishEvent>;
 
 std::string_view to_string(Finish f);
 

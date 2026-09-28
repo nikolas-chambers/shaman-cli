@@ -92,6 +92,11 @@ TEST(shell_permission_analysis) {
   CHECK(eval("cat a.txt | grep foo") == Action::allow);
   CHECK(eval("ls 2>/dev/null") == Action::allow);
   CHECK(eval("grep -r x . 2>&1") == Action::allow);
+  CHECK(eval("ls >nul") == Action::allow);          // Windows null device (cmd)
+  CHECK(eval("ls > NUL 2>&1") == Action::allow);
+  CHECK(eval("ls > $null") == Action::allow);       // PowerShell
+  CHECK(eval("echo x > nul.txt") == Action::ask);   // a real file
+  CHECK(eval("ls >/dev/nullx") == Action::ask);     // not the null device
   // the bypasses found in live testing
   CHECK(eval("echo 'test' > test.txt") == Action::ask);
   CHECK(eval("cat << 'EOF' > calc.py\ndef add(a, b):\n    return 42\nEOF\ncat calc.py\n") == Action::ask);

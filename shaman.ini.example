@@ -1,0 +1,97 @@
+; shaman.ini - portable settings
+;
+; Put this file next to the shaman executable (rename it to shaman.ini) and shaman becomes portable:
+; everything it stores goes into folders beside it, nothing in your home directory.
+;   config/   shaman.json, agents/, commands/, skills/     data/   sessions, undo snapshots, uploads
+;   cache/    model lists
+; Empty values are ignored. Lines starting with ; or # are comments. Keep real keys out of git.
+
+[keys]
+; API keys by provider id (`shaman models` lists them). One is enough to start; remove the ; to use a line.
+opencode =
+anthropic =
+openai =
+google =
+; openrouter =
+; groq =
+; xai =
+; deepseek =
+; mistral =
+; together =
+; fireworks =
+; cerebras =
+; deepinfra =
+; perplexity =
+; moonshot =
+; zai =
+; nvidia =
+; huggingface =
+; sambanova =
+; github =        ; GitHub Models (free tier); also picked up from your `gh` login
+; Azure OpenAI, Vertex AI and Bedrock use their own environment: see [env] below.
+
+[settings]
+; Reasoning effort for models that think: low, medium, high (empty: the model's default). Live: /effort
+reasoning_effort =
+; Default model as provider/model. Empty: picked from the providers above, preferring no-cost models.
+model =
+; Agent to start in: build (full tools) or plan (read-only)
+agent = build
+; Permission mode: default (ask before edits and commands), acceptEdits, yolo (allow everything not denied)
+mode = default
+; When a no-cost model is rate limited, try the next one
+free_fallback = true
+; Snapshots so /undo and /revert can restore files (kept outside your git history)
+snapshot = true
+; Mask API keys, tokens and private keys in tool output before the model sees them
+redact_secrets = true
+; Run shell commands in an OS sandbox: write only inside the project and temp (Linux bwrap, macOS sandbox-exec)
+sandbox = false
+; Tell me when a new release is out (checked once a day)
+update_check = true
+; /goal: how many self-checks before giving up
+goal_max_rounds = 5
+
+[permission]
+; allow | ask | deny. More detailed rules (per command, per path) go in config/shaman.json.
+edit = ask
+bash = ask
+webfetch = allow
+websearch = allow
+external_directory = ask
+
+[tui]
+; Terminal UI: shaman, dark, light, halloween, dracula, nord, gruvbox, solarized, monokai, sunset, ocean, forest, mono
+theme = shaman
+; Optional colour override as #rrggbb (also: code, heading, add, del, warn, info)
+accent =
+; Mouse wheel scrolling (hold Shift to select text while it is on)
+mouse = false
+; A command whose first line of output is shown bottom right (gets the session as JSON on stdin)
+statusline =
+
+[keybinds]
+; ctrl+<letter> = a slash command or: palette, editor, details, paste, copy, mode, clear, new
+ctrl+g = /sessions
+ctrl+t = /theme
+
+[env]
+; Environment variables for shaman and the commands it runs (your real environment wins).
+; Better web search with a key (default: DuckDuckGo, no key)
+TAVILY_API_KEY =
+EXA_API_KEY =
+BRAVE_SEARCH_API_KEY =
+; Corporate proxy
+HTTPS_PROXY =
+NO_PROXY =
+; Ollama on another machine
+OLLAMA_HOST =
+; Azure OpenAI: https://<resource>.openai.azure.com and its key (model ids are deployment names)
+; AZURE_OPENAI_ENDPOINT =
+; AZURE_OPENAI_API_KEY =
+; Google Vertex AI (uses your `gcloud auth` login)
+; GOOGLE_CLOUD_PROJECT =
+; GOOGLE_CLOUD_LOCATION = global
+; Amazon Bedrock
+; AWS_BEARER_TOKEN_BEDROCK =
+; AWS_REGION = us-east-1

@@ -1,5 +1,9 @@
 #include "shaman/update/update.hpp"
 
+#include "shaman/core/paths.hpp"
+#include "shaman/core/process.hpp"
+
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
@@ -20,6 +24,7 @@ namespace shaman::update {
 namespace fs = std::filesystem;
 
 std::string asset_name() {
+  if (process::termux()) return "shaman-android-termux-aarch64";  // built against Termux's own libraries
 #if defined(_WIN32)
   std::string os = "windows";
 #elif defined(__APPLE__)
@@ -39,22 +44,6 @@ std::string asset_name() {
       ;
 }
 
-static fs::path self_path() {
-#if defined(__APPLE__)
-  char buf[4096];
-  uint32_t size = sizeof buf;
-  if (_NSGetExecutablePath(buf, &size) == 0) return fs::canonical(buf);
-  return {};
-#elif defined(_WIN32)
-  char buf[MAX_PATH];
-  GetModuleFileNameA(nullptr, buf, MAX_PATH);
-  return buf;
-#else
-  std::error_code ec;
-  return fs::read_symlink("/proc/self/exe", ec);
-#endif
-}
-
 static int compare_versions(const std::string& a, const std::string& b) {
   auto parse = [](std::string s) {
     if (!s.empty() && s[0] == 'v') s.erase(0, 1);
@@ -70,6 +59,41 @@ static int compare_versions(const std::string& a, const std::string& b) {
   };
   auto va = parse(a), vb = parse(b);
   return va < vb ? -1 : va > vb ? 1 : 0;
+}
+
+std::optional<std::string> newer_version(bool enabled) {
+  const char* off = std::getenv("SHAMAN_NO_UPDATE_CHECK");
+  if (!enabled || (off && *off)) return std::nullopt;
+  auto cache = paths::cache_dir() / "update-check.json";
+  auto now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+  std::string latest;
+  try {
+    std::ifstream in(cache);
+    if (in) {
+      auto j = Json::parse(in);
+      if (now - j.value("checked", int64_t(0)) < 24 * 3600) latest = j.value("latest", "");
+    }
+  } catch (...) {}
+  if (latest.empty()) {
+    const char* repo_env = std::getenv("SHAMAN_UPDATE_REPO");
+    const char* api_env = std::getenv("SHAMAN_UPDATE_API");
+    http::Request req;
+    req.url = std::format("{}/repos/{}/releases/latest", api_env && *api_env ? api_env : "https://api.github.com",
+                          repo_env && *repo_env ? repo_env : "nikolas-chambers/shaman-cli");
+    req.headers = {{"Accept", "application/vnd.github+json"}};
+    req.timeout_s = 3;
+    auto res = http::send(req);
+    if (res && res->status == 200) {
+      try {
+        latest = Json::parse(res->body).value("tag_name", "");
+      } catch (...) {}
+    }
+    std::error_code ec;
+    fs::create_directories(cache.parent_path(), ec);
+    std::ofstream(cache) << Json{{"checked", now}, {"latest", latest}}.dump();  // also caches "none", so offline stays quiet
+  }
+  if (latest.empty() || compare_versions(latest, kVersion) <= 0) return std::nullopt;
+  return latest;
 }
 
 int upgrade(const std::string& version, bool check_only) {
@@ -94,7 +118,7 @@ int upgrade(const std::string& version, bool check_only) {
     if (a.value("name", "") == asset_name()) url = a.value("browser_download_url", "");
   if (url.empty()) return std::cerr << "upgrade: release " << tag << " has no " << asset_name() << "\n", 1;
 
-  auto self = self_path();
+  auto self = paths::executable();  // portable installs keep shaman.ini and data/ beside it, untouched
   if (self.empty()) return std::cerr << "upgrade: cannot locate the running binary\n", 1;
   auto tmp = self;
   tmp += ".new";

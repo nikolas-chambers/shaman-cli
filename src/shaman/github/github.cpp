@@ -33,6 +33,7 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
+      models: read   # free GitHub Models through GITHUB_TOKEN, no other key needed
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,9 +43,9 @@ jobs:
       - name: Run shaman
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Optional: a paid model instead of the free tier
-          # SHAMAN_MODEL: anthropic/claude-sonnet-5
-          # ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # GitHub Models are used through GITHUB_TOKEN by default. For another provider, add its key as a
+          # repository secret, e.g. OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}, or
+          # SHAMAN_MODEL: anthropic/claude-sonnet-5 with ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: shaman github run
 )";
 

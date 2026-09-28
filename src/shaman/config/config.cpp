@@ -7,6 +7,7 @@
 
 #include "shaman/core/log.hpp"
 #include "shaman/core/paths.hpp"
+#include "shaman/core/strings.hpp"
 
 namespace shaman {
 namespace {
@@ -93,6 +94,62 @@ void substitute(Json& value, const fs::path& base) {
   value = out;
 }
 
+// shaman.ini (portable mode): a friendlier front end to the same settings.
+//   [keys]        provider = key            -> provider.<id>.apiKey
+//   [settings]    name = value              -> top-level config (agent -> default_agent)
+//   [permission]  bash = ask                -> permission.<name>
+//   [env]         NAME = value              -> environment variable, unless already set
+//   [tui]         theme = halloween         -> tui.<name>
+//   [keybinds]    ctrl+g = /sessions        -> tui.keybinds
+// Values: true/false and numbers are typed; empty values are ignored; ; and # start comments.
+Json parse_ini(std::string_view text) {
+  Json out = Json::object();
+  std::string section;
+  auto typed = [](const std::string& v) -> Json {
+    if (v == "true") return true;
+    if (v == "false") return false;
+    char* end = nullptr;
+    long long n = std::strtoll(v.c_str(), &end, 10);
+    if (end && *end == '\0' && !v.empty()) return n;
+    return v;
+  };
+  for (auto& raw : str::lines(std::string(text))) {
+    auto line = str::trim(raw);
+    if (line.empty() || line[0] == ';' || line[0] == '#') continue;
+    if (line.front() == '[' && line.back() == ']') {
+      section = str::trim(line.substr(1, line.size() - 2));
+      continue;
+    }
+    auto eq = line.find('=');
+    if (eq == std::string::npos) continue;
+    auto key = str::trim(line.substr(0, eq));
+    auto value = str::trim(line.substr(eq + 1));
+    for (auto marker : {" ;", " #", "\t;", "\t#"})  // trailing comment
+      if (auto c = value.find(marker); c != std::string::npos) value = str::trim(value.substr(0, c));
+    if (value.size() >= 2 && value.front() == '"' && value.back() == '"') value = value.substr(1, value.size() - 2);
+    if (key.empty() || value.empty()) continue;
+    if (section == "keys") out["provider"][key]["apiKey"] = value;
+    else if (section == "permission") out["permission"][key] = value;
+    else if (section == "env") out["env"][key] = value;
+    else if (section == "tui") out["tui"][key] = typed(value);
+    else if (section == "keybinds") out["tui"]["keybinds"][key] = value;
+    else if (key == "agent") out["default_agent"] = value;
+    else out[key] = typed(value);
+  }
+  return out;
+}
+
+static void apply_ini_env(const Json& env) {
+  for (auto& [k, v] : env.items()) {
+    if (!v.is_string() || std::getenv(k.c_str())) continue;  // the real environment wins
+#ifdef _WIN32
+    _putenv_s(k.c_str(), v.get<std::string>().c_str());
+#else
+    setenv(k.c_str(), v.get<std::string>().c_str(), 0);
+#endif
+  }
+}
+
 Result<Config> Config::load(const fs::path& cwd, const fs::path& project_root) {
   Json merged = Json::object();
   std::vector<fs::path> sources;
@@ -114,6 +171,19 @@ Result<Config> Config::load(const fs::path& cwd, const fs::path& project_root) {
   };
 
   if (auto r = try_names(paths::config_dir()); !r) return std::unexpected(r.error());
+  if (auto root = paths::portable_root()) {
+    auto ini = *root / "shaman.ini";
+    std::error_code ec;
+    if (fs::is_regular_file(ini, ec)) {
+      std::ifstream in(ini);
+      std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+      auto layer = parse_ini(text);
+      if (layer.contains("env")) apply_ini_env(layer["env"]), layer.erase("env");
+      merged.merge_patch(layer);
+      sources.push_back(ini);
+      log::debug(log::Cat::config, "layer {}: {}", sources.size(), ini.string());
+    }
+  }
 
   // Walk from the project root down to cwd so nearer files win.
   std::vector<fs::path> chain;

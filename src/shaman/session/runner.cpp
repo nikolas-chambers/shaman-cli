@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <format>
+#include <set>
 #include <thread>
 
 #include "shaman/agent/prompts.hpp"
@@ -10,6 +11,8 @@
 #include "shaman/core/log.hpp"
 #include "shaman/core/paths.hpp"
 #include "shaman/core/strings.hpp"
+#include "shaman/hooks/hooks.hpp"
+#include "shaman/sandbox/sandbox.hpp"
 #include "shaman/session/format.hpp"
 #include "shaman/session/input.hpp"
 #include "shaman/session/redact.hpp"
@@ -17,6 +20,26 @@
 #include "shaman/session/system_prompt.hpp"
 
 namespace shaman::session {
+
+ContextSettings ContextSettings::resolve(const Json& config_context, const Json& model_context) {
+  ContextSettings c;
+  for (const Json* src : {&config_context, &model_context}) {
+    if (!src->is_object()) continue;
+    c.prune_at = std::clamp(src->value("pruneAt", c.prune_at), 0.1, 0.95);
+    c.compact_at = std::clamp(src->value("compactAt", c.compact_at), 0.2, 0.98);
+    c.keep_tool_outputs = std::max(0, src->value("keepToolOutputs", c.keep_tool_outputs));
+    c.max_tool_output = src->value("maxToolOutput", c.max_tool_output);
+    if (src->contains("limit") && (*src)["limit"].is_number()) c.limit = (*src)["limit"].get<int64_t>();
+  }
+  return c;
+}
+
+bool model_allows_tool(const Json& tools, const std::string& name) {
+  if (!tools.is_object() || tools.empty()) return true;
+  if (auto it = tools.find(name); it != tools.end() && it->is_boolean()) return it->get<bool>();
+  if (auto it = tools.find("*"); it != tools.end() && it->is_boolean()) return it->get<bool>();
+  return true;
+}
 
 std::string make_title(std::string_view text, size_t max) {
   // first non-empty line, whitespace collapsed, cut at a word boundary without splitting UTF-8
@@ -96,7 +119,10 @@ Snapshot snapshot_for(const std::filesystem::path& root) {
 
 }  // namespace
 
-Runner::Runner(Services services) : s_(std::move(services)) {}
+Runner::Runner(Services services) : s_(std::move(services)) {
+  if (s_.allow_all) mode_ = permission::Mode::yolo;
+  else if (auto m = permission::parse_mode(s_.config->raw.value("mode", ""))) mode_ = *m;  // "mode" in config
+}
 
 Runner::~Runner() {
   for (auto& [_, t] : tasks_)
@@ -107,13 +133,33 @@ permission::Gate& Runner::gate_for(const agent::Agent& agent) {
   auto& g = gates_[agent.name];
   if (!g) {
     auto rules = permission::Rules::defaults();
+    // Per-server MCP permissions: "mcp": {"github": {"permission": "allow"}} or {"permission": {"create_issue": "ask"}}.
+    // General "permission" rules below still win.
+    Json mcp_rules = Json::object();
+    if (auto servers = s_.config->raw.find("mcp"); servers != s_.config->raw.end() && servers->is_object())
+      for (auto& [server, cfg] : servers->items()) {
+        if (!cfg.is_object() || !cfg.contains("permission")) continue;
+        const Json& p = cfg["permission"];
+        if (p.is_string()) mcp_rules[server + "_*"] = p;
+        else if (p.is_object())
+          for (auto& [tool, action] : p.items()) mcp_rules[tool == "*" ? server + "_*" : server + "_" + tool] = action;
+      }
+    if (!mcp_rules.empty()) rules.push(permission::Rules::from_json({{"mcp", mcp_rules}}));
     rules.push(permission::Rules::from_json(s_.config->permission));
     rules.push(permission::Rules::from_json(agent.permission));
     permission::Hook hook;
     if (s_.plugins && !s_.plugins->empty())
       hook = [plugins = s_.plugins](const permission::Request& r) { return plugins->permission_ask(r); };
-    g = std::make_unique<permission::Gate>(std::move(rules), s_.asker, std::move(hook));
-    if (s_.allow_all) g->allow_all();
+    auto asker = s_.asker;
+    if (s_.hooks && s_.hooks->has(hooks::Event::notification) && asker) {
+      asker = [inner = s_.asker, hooks = s_.hooks](const permission::Request& r) {
+        hooks->run(hooks::Event::notification, "", "permission",
+                   {{"message", "shaman needs your permission: " + r.title}, {"permission", r.permission}});
+        return inner(r);
+      };
+    }
+    g = std::make_unique<permission::Gate>(std::move(rules), asker, std::move(hook));
+    g->follow(&mode_);
   }
   return *g;
 }
@@ -132,25 +178,53 @@ Result<Runner::Turn> Runner::complete(provider::Resolved& model, const ChatReque
   if (s_.config->free_fallback && model.model.free())
     for (auto& f : s_.providers->free_fallbacks(model.ref())) chain.push_back(f);
 
+  // When the network or a provider is down, give up quickly instead of walking every model with backoff:
+  // a host that refuses connections is not retried and its other models are skipped, the chain is capped,
+  // and fallback stops after about a minute.
+  auto is_unreachable = [](const Error& e) {
+    for (auto s : {"Couldn't connect", "Could not resolve", "Couldn't resolve", "Connection refused", "Failure when receiving data",
+                   "timed out", "SSL connect error"})
+      if (e.message.find(s) != std::string::npos) return true;
+    return false;
+  };
+  std::set<std::string> dead_hosts;
+  const auto started = std::chrono::steady_clock::now();
+  constexpr size_t kMaxModels = 4;
+  size_t tried = 0;
   Error last;
   for (size_t m = 0; m < chain.size(); ++m) {
     if (m > 0) {
       auto next = s_.providers->resolve(chain[m]);
       if (!next) continue;
+      if (dead_hosts.contains(next->endpoint.base_url)) continue;
+      if (tried >= kMaxModels || std::chrono::steady_clock::now() - started > std::chrono::seconds(60)) {
+        log::debug(log::Cat::provider, "fallback budget used ({} models)", tried);
+        break;
+      }
       events.notice(std::format("{} unavailable ({}); switching to {}", model.ref(), last.message, next->ref()));
       log::debug(log::Cat::provider, "fallback {} -> {}", model.ref(), next->ref());
       model = *next;
     }
     auto provider = model.connect();
+    ++tried;
     for (int attempt = 0; attempt < 3; ++attempt) {
       if (s_.cancel && s_.cancel->load()) return fail("cancelled");
-      if (attempt > 0 && last.message != "empty response from model") {
+      if (attempt > 0 && is_unreachable(last)) {  // one quick retry for a blip, then move on
+        if (attempt > 1) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+      } else if (attempt > 0 && last.message != "empty response from model") {
         auto wait = std::chrono::seconds(1 << attempt);
         events.notice(std::format("retrying in {}s: {}", wait.count(), last.message));
         std::this_thread::sleep_for(wait);
       }
       ChatRequest req = base;
       req.model = model.model.id;
+      // Per-model tweaks: temperature and effort unless the agent (or /effort) set them, extra body fields.
+      if (!req.temperature) req.temperature = model.model.temperature;
+      if (auto e = effort(); !e.empty()) req.reasoning_effort = e == "off" ? "" : e;
+      else if (req.reasoning_effort.empty()) req.reasoning_effort = model.model.reasoning_effort;
+      req.extra_body = model.provider.body;
+      req.extra_body.merge_patch(model.model.body);
       if (attempt > 0 && last.message == "empty response from model")  // identical retries tend to come back empty too
         req.messages.push_back(Message::user("(Your previous reply was empty. Continue with the task, using tools as needed.)"));
       Turn turn;
@@ -164,6 +238,11 @@ Result<Runner::Turn> Runner::complete(provider::Resolved& model, const ChatReque
         streamed = true;
         if (auto* t = std::get_if<TextDelta>(&ev)) text += t->text, events.text(t->text);
         else if (auto* rd = std::get_if<ReasoningDelta>(&ev)) reasoning += rd->text, events.reasoning(rd->text);
+        else if (auto* done = std::get_if<ReasoningDone>(&ev)) {
+          if (!text.empty()) turn.message.parts.push_back(TextPart{std::move(text)}), text.clear();
+          turn.message.parts.push_back(ReasoningPart{std::move(reasoning), done->signature, done->meta});
+          reasoning.clear();
+        }
         else if (auto* tc = std::get_if<ToolCallEvent>(&ev)) flush(), turn.message.parts.push_back(tc->call);
         else if (auto* u = std::get_if<UsageEvent>(&ev)) turn.usage = u->usage;
         else if (auto* f = std::get_if<FinishEvent>(&ev)) turn.finish = f->reason;
@@ -180,6 +259,10 @@ Result<Runner::Turn> Runner::complete(provider::Resolved& model, const ChatReque
       log::debug(log::Cat::provider, "{} attempt {} failed: {}", model.ref(), attempt + 1, last.message);
       // Never retry once output reached the user; that would duplicate it.
       if (!last.retryable || streamed) return std::unexpected(last);
+      if (is_unreachable(last) && attempt >= 1) {
+        dead_hosts.insert(model.endpoint.base_url);
+        break;
+      }
     }
   }
   return std::unexpected(last);
@@ -207,6 +290,11 @@ tool::Output Runner::run_tool(const ToolCallPart& call, const agent::Agent& agen
     if (before.block) return tool::error("blocked by plugin: " + *before.block);
     input = before.input;
   }
+  if (s_.hooks && s_.hooks->has(hooks::Event::pre_tool_use)) {
+    auto o = s_.hooks->run(hooks::Event::pre_tool_use, session.id, call.name, {{"tool_name", call.name}, {"tool_input", input}});
+    for (auto& e : o.errors) events.notice("hook: " + e);
+    if (o.block) return tool::error("blocked by hook: " + o.reason);
+  }
 
   tool::Context ctx;
   ctx.root = s_.root;
@@ -218,6 +306,14 @@ tool::Output Runner::run_tool(const ToolCallPart& call, const agent::Agent& agen
   ctx.jobs = &jobs_;
   ctx.tools = s_.tools;
   if (session.parent_id.empty()) ctx.question = s_.question;  // subagents decide for themselves
+  if (auto sb = sandbox::from_config(s_.config->raw); sb.enabled)
+    ctx.sandbox = [sb, root = s_.root](const std::string& cmd, const std::filesystem::path& cwd) {
+      return sandbox::wrap(cmd, root, cwd, sb);
+    };
+  ctx.switch_agent = [this](const std::string& name, const std::string& mode) {
+    pending_agent_ = name;
+    if (auto m = permission::parse_mode(mode)) mode_ = *m;
+  };
   ctx.subagent = [&, parent = session](const std::string& agent_name, const std::string& prompt) -> Result<std::string> {
     auto* sub = s_.agents->find(agent_name);
     if (!sub || sub->mode == agent::Mode::primary) return fail("no such subagent: " + agent_name);
@@ -244,8 +340,9 @@ tool::Output Runner::run_tool(const ToolCallPart& call, const agent::Agent& agen
     // Its own runner: background work must not share this runner's per-turn state.
     auto services = s_;
     services.question = nullptr;
-    task->thread = std::thread([task, services, info = *child, prompt]() mutable {
+    task->thread = std::thread([task, services, info = *child, prompt, mode = mode_.load()]() mutable {
       Runner runner(services);
+      runner.set_mode(mode);
       Events quiet;
       auto r = runner.prompt(info, prompt, quiet);
       std::lock_guard lock(task->mu);
@@ -278,6 +375,13 @@ tool::Output Runner::run_tool(const ToolCallPart& call, const agent::Agent& agen
     out.text = after.output;
     s_.plugins->event("tool.end", {{"session", session.id}, {"tool", call.name}, {"title", out.title}, {"is_error", out.is_error}});
   }
+  if (s_.hooks && s_.hooks->has(hooks::Event::post_tool_use)) {
+    auto o = s_.hooks->run(hooks::Event::post_tool_use, session.id, call.name,
+                           {{"tool_name", call.name}, {"tool_input", input},
+                            {"tool_response", {{"output", out.text}, {"is_error", out.is_error}}}});
+    for (auto& e : o.errors) events.notice("hook: " + e);
+    if (o.block) out.text += "\n\nHook feedback: " + o.reason;  // shown to the model so it can react
+  }
   auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
   if (log::enabled(log::Cat::tool)) {
     auto preview = out.text.substr(0, 160);
@@ -290,6 +394,32 @@ tool::Output Runner::run_tool(const ToolCallPart& call, const agent::Agent& agen
   if (s_.config->raw.value("redact_secrets", true))
     if (int n = redact_secrets(out.text); n > 0) log::debug(log::Cat::tool, "redacted {} secret(s) from {} output", n, call.name);
   return out;
+}
+
+Result<Runner::ContextReport> Runner::context_report(const Info& session, const std::optional<std::string>& model_ref) {
+  auto* agent = s_.agents->find(session.agent);
+  if (!agent) return fail("unknown agent: " + session.agent);
+  auto model = pick_model(session, *agent, model_ref);
+  if (!model) return std::unexpected(model.error());
+  auto history = s_.store->messages(session.id);
+  if (!history) return std::unexpected(history.error());
+  ContextReport r;
+  r.model = model->ref();
+  auto ctx_cfg = ContextSettings::resolve(s_.config->raw.value("context", Json::object()), model->model.context_options);
+  r.window = ctx_cfg.limit > 0 ? std::min(ctx_cfg.limit, model->model.context) : model->model.context;
+  r.system = int64_t(system_prompt(*agent, *s_.config, s_.root, model->ref()).size() / 4);
+  for (auto* t : s_.tools->all())
+    if (agent->tool_enabled(t->name()) && model_allows_tool(model->model.tools, t->name())) {
+      auto spec = t->spec();
+      r.tools += int64_t((spec.name.size() + spec.description.size() + spec.parameters.dump().size()) / 4);
+      ++r.tool_count;
+    }
+  r.messages = estimate_tokens(*history);
+  r.message_count = history->size();
+  for (auto& m : *history)
+    for (auto& p : m.parts)
+      if (auto* tr = std::get_if<ToolResultPart>(&p)) r.tool_outputs += int64_t(tr->output.size() / 4);
+  return r;
 }
 
 Result<std::string> Runner::prompt(Info& session, const std::string& input_text, Events& events, const PromptOptions& opts) {
@@ -307,6 +437,22 @@ Result<std::string> Runner::prompt(Info& session, const std::string& input_text,
       if (c.name == "read" || c.name == "write" || c.name == "edit" || c.name == "multiedit")
         if (auto f = c.input.value("filePath", ""); !f.empty()) read_files_.insert(paths::resolve(s_.root, f));
 
+  // Hooks may reject the prompt or add context to it; SessionStart runs on a session's first turn.
+  std::string hook_context;
+  if (s_.hooks && session.parent_id.empty()) {
+    if (messages.empty() && s_.hooks->has(hooks::Event::session_start)) {
+      auto o = s_.hooks->run(hooks::Event::session_start, session.id, "startup", {{"source", "startup"}});
+      for (auto& e : o.errors) events.notice("hook: " + e);
+      hook_context += o.context;
+    }
+    if (s_.hooks->has(hooks::Event::user_prompt_submit)) {
+      auto o = s_.hooks->run(hooks::Event::user_prompt_submit, session.id, "", {{"prompt", input_text}});
+      for (auto& e : o.errors) events.notice("hook: " + e);
+      if (o.block) return fail("prompt blocked by hook: " + o.reason);
+      hook_context += o.context;
+    }
+  }
+
   if (s_.config->snapshot && session.parent_id.empty()) {
     while (session.snapshots.size() < session.turn_starts.size()) session.snapshots.push_back("");
     if (auto tree = snapshot_for(s_.root).track()) session.snapshots.push_back(*tree);
@@ -315,6 +461,7 @@ Result<std::string> Runner::prompt(Info& session, const std::string& input_text,
   if (s_.plugins && !s_.plugins->empty()) s_.plugins->chat_message(session.id, text);
   if (session.title.empty()) session.title = make_title(text);
 
+  if (!hook_context.empty()) text += "\n\n<hook-context>\n" + str::trim(hook_context) + "\n</hook-context>";
   auto composed = compose(text, opts.attachments, s_.root);
   for (auto& w : composed.warnings) events.notice(w);
   for (auto& f : composed.files) read_files_.insert(f);
@@ -331,28 +478,40 @@ Result<std::string> Runner::prompt(Info& session, const std::string& input_text,
   s_.store->save(session);
 
   ChatRequest req;
-  req.system = system_prompt(*agent, *s_.config, s_.root, model->ref());
-  if (!session.goal.empty())
-    req.system += "\n\nCurrent goal (set by the user with /goal): " + session.goal +
-                  "\nKeep working until it is fully achieved and verified (build, tests, running it). When it is, end your "
-                  "reply with a line containing exactly: GOAL COMPLETE";
-  if (s_.plugins && !s_.plugins->empty()) {
-    s_.plugins->chat_system(agent->name, req.system);
-    s_.plugins->event("prompt", {{"session", session.id}, {"agent", agent->name}, {"model", model->ref()}, {"text", text}});
-  }
-  req.temperature = agent->temperature;
   req.cancel = s_.cancel;
-  for (auto* t : s_.tools->all())
-    if (agent->tool_enabled(t->name())) req.tools.push_back(t->spec());
+  // System prompt and tools come from the agent; plan_exit can hand the turn over to another agent.
+  auto configure = [&] {
+    req.system = system_prompt(*agent, *s_.config, s_.root, model->ref());
+    if (!session.goal.empty())
+      req.system += "\n\nCurrent goal (set by the user with /goal): " + session.goal +
+                    "\nKeep working until it is fully achieved and verified (build, tests, running it). When it is, end your "
+                    "reply with a line containing exactly: GOAL COMPLETE";
+    if (s_.plugins && !s_.plugins->empty()) s_.plugins->chat_system(agent->name, req.system);
+    req.temperature = agent->temperature;
+    req.reasoning_effort = !agent->reasoning_effort.empty() ? agent->reasoning_effort
+                                                              : s_.config->raw.value("reasoning_effort", std::string());
+    req.tools.clear();
+    for (auto* t : s_.tools->all())
+      if (agent->tool_enabled(t->name()) && model_allows_tool(model->model.tools, t->name()) &&
+          (t->name() != "plan_exit" || agent->name == "plan"))
+        req.tools.push_back(t->spec());
+  };
+  configure();
+  if (s_.plugins && !s_.plugins->empty())
+    s_.plugins->event("prompt", {{"session", session.id}, {"agent", agent->name}, {"model", model->ref()}, {"text", text}});
+
+  // Context budget: the model's window, optionally capped ("limit") to keep requests small and cheap.
+  auto ctx_cfg = ContextSettings::resolve(s_.config->raw.value("context", Json::object()), model->model.context_options);
+  const int64_t window = ctx_cfg.limit > 0 ? std::min(ctx_cfg.limit, model->model.context) : model->model.context;
 
   std::string final_text;
-  int goal_checks = 0;
+  int goal_checks = 0, stop_blocks = 0;
   const int max_goal_checks = int(s_.config->raw.value("goal_max_rounds", 5));
   for (int step = 1; step <= agent->max_steps; ++step) {
     log::debug(log::Cat::session, "{} step {} ({} messages, model {})", session.id, step, messages.size(), model->ref());
     req.messages = messages;
-    if (estimate_tokens(req.messages) > model->model.context * 6 / 10)
-      if (int n = prune_old_outputs(req.messages, 6); n > 0)
+    if (estimate_tokens(req.messages) > int64_t(double(window) * ctx_cfg.prune_at))
+      if (int n = prune_old_outputs(req.messages, ctx_cfg.keep_tool_outputs); n > 0)
         log::debug(log::Cat::session, "pruned {} old tool outputs from the request", n);
     auto turn = complete(*model, req, events);
     if (!turn) {
@@ -373,6 +532,19 @@ Result<std::string> Runner::prompt(Info& session, const std::string& input_text,
 
     auto calls = turn->message.tool_calls();
     if (calls.empty()) {
+      if (s_.hooks && session.parent_id.empty() && stop_blocks < 3 && s_.hooks->has(hooks::Event::stop)) {
+        auto o = s_.hooks->run(hooks::Event::stop, session.id, "",
+                               {{"last_assistant_message", final_text}, {"stop_hook_active", stop_blocks > 0}});
+        for (auto& e : o.errors) events.notice("hook: " + e);
+        if (o.block) {
+          ++stop_blocks;
+          events.notice("stop hook: " + o.reason + " (continuing)");
+          auto nudge = Message::user("A Stop hook says the work is not finished:\n" + o.reason + "\nAddress this before finishing.");
+          messages.push_back(nudge);
+          s_.store->append(session.id, nudge);
+          continue;
+        }
+      }
       if (session.goal.empty()) break;
       auto lines = str::lines(final_text);  // must stand alone on a line, not be quoted inside a sentence
       if (std::ranges::any_of(lines, [](const std::string& l) { return str::trim(l) == "GOAL COMPLETE"; })) {
@@ -400,15 +572,29 @@ Result<std::string> Runner::prompt(Info& session, const std::string& input_text,
       }
       events.tool_start(call);
       auto out = run_tool(call, *agent, session, events);
+      if (ctx_cfg.max_tool_output > 0 && out.text.size() > ctx_cfg.max_tool_output) {  // keep the start and the end
+        size_t half = ctx_cfg.max_tool_output / 2;
+        out.text = out.text.substr(0, half) + std::format("\n\n[... {} characters cut (context.maxToolOutput) ...]\n\n",
+                                                          out.text.size() - 2 * half) + out.text.substr(out.text.size() - half);
+      }
       events.tool_end(call, out);
       results.parts.push_back(ToolResultPart{call.id, call.name, out.text, out.is_error, out.title, out.images, out.diff});
     }
     messages.push_back(results);
     s_.store->append(session.id, results);
     if (s_.cancel && s_.cancel->load()) break;
+    if (pending_agent_) {  // plan approved: carry on as the build agent
+      if (auto* next = s_.agents->find(*pending_agent_)) {
+        events.notice("plan approved; switching to " + next->name);
+        session.agent = next->name;
+        agent = next;
+        configure();
+      }
+      pending_agent_.reset();
+    }
 
     // Compact before the next step if the window is nearly full.
-    if (turn->usage.total() > model->model.context * 85 / 100) {
+    if (turn->usage.total() > int64_t(double(window) * ctx_cfg.compact_at)) {
       s_.store->save(session);
       if (auto r = compact(session, events); !r) events.notice("compaction failed: " + r.error().message);
       auto reloaded = s_.store->messages(session.id);

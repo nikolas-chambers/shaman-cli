@@ -11,9 +11,10 @@
 namespace shaman::cli {
 
 struct Options {
-  std::optional<std::string> model, agent, session, command, attach, goal;
+  std::optional<std::string> model, agent, session, command, attach, goal, effort;
   std::vector<std::string> files;
   bool cont = false, yolo = false, reasoning = false, json = false, plain = false;
+  bool accept_edits = false;  // --mode acceptEdits
 };
 
 Options options_from(const Args& args);

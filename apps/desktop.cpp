@@ -3,27 +3,65 @@
 //
 //   shaman-desktop [project-dir]
 //
+// Without a directory (a double-click), it reopens the last project, or your home folder.
+//
 // The server binds 127.0.0.1 on a random port and requires a random token,
 // which is handed to the page directly, so nothing else on the machine can
 // drive it.
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <future>
 #include <iostream>
 #include <thread>
 
 #include "shaman/cli/app.hpp"
 #include "shaman/core/log.hpp"
+#include "shaman/core/paths.hpp"
+#include "shaman/core/process.hpp"
 #include "shaman/mcp/oauth.hpp"
 #include "shaman/server/server.hpp"
 #include "webview/webview.h"
 
 namespace {
 
-int run(int argc, char** argv) {
-  namespace fs = std::filesystem;
+namespace fs = std::filesystem;
+
+// Which project to open. Launched from Finder, the Start menu or a dock, the working directory is "/" or
+// the app's own folder, which is never what you want: reopen the last project, else your home folder.
+fs::path project_dir(int argc, char** argv) {
   std::error_code ec;
-  fs::path dir = argc > 1 ? fs::path(argv[1]) : fs::current_path(ec);
+  auto remember = shaman::paths::data_dir() / "desktop-last-project";
+  if (argc > 1 && !std::string_view(argv[1]).starts_with("-psn")) {  // -psn_...: old macOS process serial number
+    auto dir = fs::absolute(argv[1], ec);
+    fs::create_directories(remember.parent_path(), ec);
+    std::ofstream(remember) << dir.string();
+    return dir;
+  }
+  auto cwd = fs::current_path(ec);
+  auto exe_dir = shaman::paths::executable().parent_path();
+  bool launched_by_os = cwd.empty() || cwd == cwd.root_path() || cwd == exe_dir ||
+                        cwd.string().find(".app/Contents") != std::string::npos ||
+                        cwd.string().find("System32") != std::string::npos;
+  if (!launched_by_os) return cwd;
+  std::ifstream in(remember);
+  std::string last;
+  if (std::getline(in, last) && fs::is_directory(last, ec)) return last;
+  const char* home = std::getenv("HOME");
+  if (!home) home = std::getenv("USERPROFILE");
+  return home ? fs::path(home) : cwd;
+}
+
+int run(int argc, char** argv) {
+  std::error_code ec;
+#ifdef __APPLE__
+  // Apps started from Finder get a bare PATH (no Homebrew, node, ...): use the one from your login shell.
+  if (const char* sh = std::getenv("SHELL"); sh && *sh) {
+    auto r = shaman::process::shell(std::string(sh) + " -lc 'printf %s \"$PATH\"'", {.timeout = std::chrono::seconds(5)});
+    if (r && r->exit_code == 0 && !r->output.empty()) setenv("PATH", r->output.c_str(), 1);
+  }
+#endif
+  fs::path dir = project_dir(argc, argv);
   if (const char* d = std::getenv("SHAMAN_DEBUG"); d && *d) shaman::log::enable(shaman::log::parse_categories(d));
 
   auto app = shaman::cli::App::create(dir, true);

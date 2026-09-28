@@ -1,6 +1,11 @@
 # HTTP API
 
 `shaman serve [--port 4096] [--host 127.0.0.1] [--token T] [--yolo]` serves the web UI at `/` and this API.
+
+`shaman serve --pair` (or `shaman web --pair`) listens on your local network with a random token and prints a QR code:
+scan it with a phone on the same Wi-Fi to open the full web UI there. `--pair=app` encodes a `shaman://connect` link
+for the Shaman Android app instead. Anyone with the link can use shaman on that machine, so keep it private and stop
+the server when you are done.
 With `--token`, API calls need `Authorization: Bearer T`. `shaman web` does the same on a free port and opens a
 browser; `shaman-desktop` embeds it in a native window.
 
@@ -12,7 +17,7 @@ browser; `shaman-desktop` embeds it in a native window.
 | GET / POST | `/session` | list / create (`{"agent"?, "model"?}`) |
 | GET / DELETE | `/session/:id` | |
 | GET | `/session/:id/message` | full message log |
-| POST | `/session/:id/message` | `{"text", "model"?, "agent"?, "files"?, "goal"?}` → SSE stream; `{"command", "arguments"}` runs a custom command |
+| POST | `/session/:id/message` | `{"text", "model"?, "agent"?, "files"?, "goal"?, "mode"?, "effort"?}` → SSE stream; `{"command", "arguments"}` runs a custom command or MCP prompt. `mode`: default, acceptEdits, yolo; `effort`: low, medium, high, off, or "" for the model's default |
 | POST | `/session/:id/abort`, `/undo`, `/compact` | |
 | POST | `/session/:id/title` | `{"title"}` rename |
 | GET | `/session/:id/turns` | user messages you can go back to: `[{"turn", "text"}]` |
@@ -27,7 +32,7 @@ browser; `shaman-desktop` embeds it in a native window.
 Stream events (each `data:` is JSON with a `session` field): `text`, `reasoning`, `tool_start`, `tool_end` (with a
 unified `diff` for file edits), `step`,
 `notice`, `permission` (answer via `/permission/:id`), `question` (`{id, question, options, multiple}`, answer via
-`/question/:id`), `done`, `error`.
+`/question/:id`), `done` (with the session's `agent` and `mode`, which plan approval can change), `error`.
 
 ```sh
 id=$(curl -s -X POST localhost:4096/session -d '{}' | jq -r .id)

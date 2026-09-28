@@ -1,0 +1,19 @@
+{
+  "version": "0.1.0",
+  "description": "Coding agent for your terminal: your link between worlds",
+  "homepage": "https://nikolas-chambers.github.io/shaman-cli/",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/nikolas-chambers/shaman-cli/releases/download/v0.1.0/shaman-windows-x64.exe#/shaman.exe",
+      "hash": "REPLACE_WITH_SHA256"
+    }
+  },
+  "bin": "shaman.exe",
+  "checkver": "github",
+  "autoupdate": {
+    "architecture": {
+      "64bit": { "url": "https://github.com/nikolas-chambers/shaman-cli/releases/download/v$version/shaman-windows-x64.exe#/shaman.exe" }
+    }
+  }
+}

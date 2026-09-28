@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -25,6 +26,8 @@ struct Command {
   std::optional<std::string> agent;
   std::optional<std::string> model;
   std::string source;
+  // Commands whose text comes from elsewhere (MCP prompts): called with the arguments instead of `body`.
+  std::function<std::string(const std::string& arguments)> fetch;
 };
 
 std::vector<Command> discover(const Config& config, const std::filesystem::path& root);

@@ -12,7 +12,8 @@ namespace shaman::tui {
 
 struct Options {
   std::optional<std::string> model, agent, session, prompt;
-  bool cont = false, allow_all = false;
+  bool cont = false, allow_all = false, accept_edits = false;
+  std::string effort;
 };
 
 int run(cli::App& app, const Options& opts);

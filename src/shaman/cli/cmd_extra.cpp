@@ -9,6 +9,7 @@
 #include "shaman/core/strings.hpp"
 #include "shaman/extras/schedule.hpp"
 #include "shaman/extras/worktree.hpp"
+#include "shaman/sandbox/sandbox.hpp"
 #include "shaman/http/http.hpp"
 #include "shaman/lsp/lsp.hpp"
 #include "shaman/skill/skill.hpp"
@@ -120,6 +121,23 @@ int cmd_doctor(App& app, const Args&) {
   std::cout << "\nextensions\n";
   line(true, "skills", std::to_string(skill::discover(app.root).size()) + " available");
   line(true, "MCP servers", std::to_string(app.config.mcp.size()) + " configured");
+  {
+    auto sb = sandbox::from_config(app.config.raw);
+    auto m = sandbox::mechanism();
+    if (sb.enabled) line(bool(m), "bash sandbox", m ? *m + (sb.network ? "" : ", no network") : m.error().message);
+    else line(true, "bash sandbox", std::string("off") + (m ? " (\"sandbox\": true to use " + *m + ")" : ""), true);
+  }
+  if (auto root = paths::portable_root()) line(true, "portable", root->string());
+  {
+    auto loc = app.auth->location();
+    bool file = loc.ends_with("auth.json");
+    line(true, "key storage", file ? loc + (paths::portable_root() ? " (portable)" : " (no OS keychain found)") : loc, file);
+  }
+  if (process::termux())
+    line(bool(process::which("termux-notification")), "Termux API",
+         process::which("termux-notification") ? "notifications, clipboard and links work"
+                                                : "pkg install termux-api (and the Termux:API app) for notifications and links",
+         true);
   std::cout << "\nterminal\n";
   line(u, "UTF-8 locale", u ? "" : "set LANG=C.UTF-8 (or similar) for nicer symbols; ASCII fallback in use", true);
   std::cout << "\n" << (problems ? std::to_string(problems) + " problem(s) found" : std::string("all good")) << "\n";

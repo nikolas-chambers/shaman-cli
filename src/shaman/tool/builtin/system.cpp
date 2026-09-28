@@ -37,9 +37,15 @@ class Bash final : public Tool {
     auto desc = in.value("description", "");
     auto title = desc.empty() || desc == command ? "$ " + command : desc + "  $ " + command;
     if (!ctx.permit("bash", command, "$ " + command)) return error("permission denied: " + command);
+    std::string run = command;
+    if (ctx.sandbox) {
+      auto wrapped = ctx.sandbox(command, *cwd);
+      if (!wrapped) return error("sandbox unavailable, command not run: " + wrapped.error().message);
+      run = *wrapped;
+    }
     if (in.value("background", false)) {
       if (!ctx.jobs) return error("background jobs are not available here");
-      auto job = process::Background::start(command, *cwd);
+      auto job = process::Background::start(run, *cwd);
       if (!job) return error(job.error().message);
       auto id = "job" + std::to_string(ctx.jobs->size() + 1);
       (*ctx.jobs)[id] = *job;
@@ -51,7 +57,7 @@ class Bash final : public Tool {
               !alive && (*job)->exit_code() != 0, "$ " + command + " &"};
     }
     int64_t timeout = std::clamp<int64_t>(in.value("timeout", 120'000), 1'000, 600'000);
-    auto res = process::shell(command, {.cwd = *cwd, .timeout = std::chrono::milliseconds(timeout), .cancel = ctx.cancel});
+    auto res = process::shell(run, {.cwd = *cwd, .timeout = std::chrono::milliseconds(timeout), .cancel = ctx.cancel});
     if (!res) return error(res.error().message);
     auto out = truncate(res->output);
     if (res->timed_out) out += std::format("\n[timed out after {} ms]", timeout);
@@ -220,8 +226,9 @@ void register_builtins(Registry& r, const fs::path& root) {
                     make_webfetch, make_websearch, make_todowrite, make_todoread, make_task})
     r.add(make());
   r.add(make_skill(root));
+  r.add(make_symbols(root));
   for (auto make : {make_lsp, make_multiedit, make_question, make_batch, make_http, make_notebook_edit, make_bash_output,
-                    make_bash_kill, make_bash_input, make_memory, make_task_output})
+                    make_bash_kill, make_bash_input, make_memory, make_task_output, make_plan_exit})
     r.add(make());
 }
 

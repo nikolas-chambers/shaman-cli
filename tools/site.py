@@ -8,13 +8,24 @@ import re
 import shutil
 import sys
 
-PAGES = [
-    ("index.html", "README.md", "Home"),
+DOCS = [
     ("architecture.html", "docs/ARCHITECTURE.md", "Architecture"),
     ("config.html", "docs/CONFIG.md", "Config"),
     ("plugins.html", "docs/PLUGINS.md", "Plugins"),
     ("server.html", "docs/SERVER.md", "Server"),
 ]
+
+DOC_PAGES = {}
+for _href, _rel, _label in DOCS:
+    DOC_PAGES[_rel] = _href
+    DOC_PAGES[_rel.rsplit("/", 1)[-1]] = _href
+
+DOC_BLURB = {
+    "Architecture": "How the pieces fit: binary layout, request flow, module boundaries and error handling.",
+    "Config": "Every configuration file, environment variable and precedence rule.",
+    "Plugins": "Hook into tool calls, prompts and permissions from Python or TypeScript.",
+    "Server": "HTTP API served by `shaman serve`, and the endpoints the web UI uses.",
+}
 
 STYLE = """
 :root{--bg:#fff;--panel:#f6f6f8;--fg:#1c1c21;--muted:#6d6d78;--line:#e4e4ea;--accent:#5b4bdb;--code:#f1f1f4;--quote:#f0eefc}
@@ -27,6 +38,14 @@ nav .tag{color:var(--muted);font-size:13px;margin-bottom:22px}
 nav a{display:block;padding:7px 10px;margin:0 -10px;border-radius:7px;color:var(--fg);text-decoration:none;font-size:14.5px}
 nav a:hover{background:var(--line)}
 nav a.on{background:var(--accent);color:#fff}
+nav a.top{font-weight:600;margin-bottom:2px}
+nav .navlabel{color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.09em;margin:20px 10px 6px}
+.lede{color:var(--muted);font-size:1.08em;margin-top:-.4em}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin-top:1.6em}
+.card{display:block;padding:18px 20px;border:1px solid var(--line);border-radius:12px;background:var(--panel);text-decoration:none;color:inherit;transition:border-color .15s,transform .15s}
+.card:hover{border-color:var(--accent);transform:translateY(-2px)}
+.card h2{margin:0 0 6px;font-size:1.12em;border:0;padding:0}
+.card p{margin:0;color:var(--muted);font-size:.94em;line-height:1.5}
 main{flex:1;min-width:0;padding:48px 40px 96px;max-width:900px}
 h1,h2,h3,h4{line-height:1.25;letter-spacing:-.02em;margin:1.6em 0 .6em}
 h1{font-size:2.1em;margin-top:0;padding-bottom:.35em;border-bottom:1px solid var(--line)}
@@ -89,7 +108,8 @@ def inline(text):
             if m:
                 href = m.group(2)
                 if not re.match(r"^[a-z]+://|^#|^mailto:", href):
-                    href = href + ".html" if href.endswith(".md") else href
+                    if href.endswith(".md"):
+                        href = DOC_PAGES.get(href) or DOC_PAGES.get(href.rsplit("/", 1)[-1]) or href[:-3] + ".html"
                 out.append('<a href="%s">%s</a>' % (html.escape(href, quote=True), inline(m.group(1))))
                 i += m.end()
                 continue
@@ -221,18 +241,24 @@ def convert(text):
         else:
             buf = []
             while i < n and lines[i].strip() and not re.match(r"^(#{1,6}\s|```|> )", lines[i].strip()) and not re.match(r"^(?:[-*+]|\d+[.)])\s", lines[i].strip()):
-                buf.append(lines[i].strip())
+                raw = lines[i].rstrip()
+                hard = len(raw) - len(raw.rstrip(" ")) >= 2
+                buf.append(lines[i].strip() + ("<br>" if hard else ""))
                 i += 1
             out.append("<p>%s</p>" % inline(" ".join(buf)))
 
     return "\n".join(out)
 
 
-def page(title, body, current, depth="  "):
+def page(title, body, current):
     nav = ['<nav><div class="brand">shaman</div><div class="tag">a coding agent for your terminal</div>']
-    for href, label, _ in PAGES:
+    for href, label in (("index.html", "Homepage"), ("docs.html", "Docs")):
+        cls = "top on" if href == current else "top"
+        nav.append('<a class="%s" href="%s">%s</a>' % (cls, href, html.escape(label)))
+    nav.append('<div class="navlabel">Reference</div>')
+    for href, _, label in DOCS:
         cls = " class=\"on\"" if href == current else ""
-        nav.append('%s<a href="%s"%s>%s</a>' % (depth, href, cls, html.escape(label)))
+        nav.append('<a href="%s"%s>%s</a>' % (href, cls, html.escape(label)))
     nav.append("</nav>")
     return (
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
@@ -257,20 +283,34 @@ def main():
         shutil.rmtree(out)
     out.mkdir(parents=True)
 
-    for href, rel, label in PAGES:
+    landing = src / "docs" / "index.html"
+    if not landing.is_file():
+        sys.exit("missing source: docs/index.html")
+    shutil.copyfile(landing, out / "index.html")
+    print("wrote", out / "index.html")
+
+    assets = src / "docs" / "assets"
+    if assets.is_dir():
+        shutil.copytree(assets, out / "assets")
+        n = sum(1 for _ in (out / "assets").rglob("*") if _.is_file())
+        print("wrote", out / "assets", "(%d files)" % n)
+
+    cards = "".join(
+        '<a class="card" href="%s"><h2>%s</h2><p>%s</p></a>' % (href, html.escape(label), inline(DOC_BLURB[label]))
+        for href, _, label in DOCS
+    )
+    (out / "docs.html").write_text(
+        page("Docs", "<h1>Docs</h1><p class=\"lede\">Everything about building, configuring and extending shaman.</p>"
+                     '<div class="cards">%s</div>' % cards, "docs.html"),
+        encoding="utf-8",
+    )
+    print("wrote", out / "docs.html")
+
+    for href, rel, label in DOCS:
         path = src / rel
         if not path.is_file():
             sys.exit("missing source: %s" % rel)
-        title = label
-        text = path.read_text(encoding="utf-8")
-        if text.startswith("---"):
-            end = text.find("\n---", 3)
-            if end > 0:
-                text = text[end + 4 :].lstrip("\n")
-        m = re.search(r"^#\s+(.*)$", text, re.M)
-        if m and label == "Home":
-            title = m.group(1).strip()
-        (out / href).write_text(page(label, convert(text), href), encoding="utf-8")
+        (out / href).write_text(page(label, convert(path.read_text(encoding="utf-8")), href), encoding="utf-8")
         print("wrote", out / href)
 
     (out / "style.css").write_text(STYLE.lstrip(), encoding="utf-8")

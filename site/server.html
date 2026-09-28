@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Server - shaman</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav><div class="brand">shaman</div><div class="tag">a coding agent for your terminal</div>
+<a class="top" href="index.html">Homepage</a>
+<a class="top" href="docs.html">Docs</a>
+<div class="navlabel">Reference</div>
+<a href="architecture.html">Architecture</a>
+<a href="config.html">Config</a>
+<a href="plugins.html">Plugins</a>
+<a href="server.html" class="on">Server</a>
+</nav>
+<main>
+<h1 id="http-api">HTTP API<a class="anchor" href="#http-api">#</a></h1>
+<p><code>shaman serve [--port 4096] [--host 127.0.0.1] [--token T] [--yolo]</code> serves the web UI at <code>/</code> and this API. With <code>--token</code>, API calls need <code>Authorization: Bearer T</code>. <code>shaman web</code> does the same on a free port and opens a browser; <code>shaman-desktop</code> embeds it in a native window.</p>
+<table><thead><tr><th>Method</th><th>Path</th><th></th></tr></thead><tbody><tr><td>GET</td><td><code>/health</code></td><td><code>{&quot;version&quot;}</code></td></tr><tr><td>GET</td><td><code>/models</code>, <code>/agents</code>, <code>/commands</code>, <code>/config</code></td><td></td></tr><tr><td>GET / POST</td><td><code>/session</code></td><td>list / create (<code>{&quot;agent&quot;?, &quot;model&quot;?}</code>)</td></tr><tr><td>GET / DELETE</td><td><code>/session/:id</code></td><td></td></tr><tr><td>GET</td><td><code>/session/:id/message</code></td><td>full message log</td></tr><tr><td>POST</td><td><code>/session/:id/message</code></td><td><code>{&quot;text&quot;, &quot;model&quot;?, &quot;agent&quot;?, &quot;files&quot;?}</code> → SSE stream</td></tr><tr><td>POST</td><td><code>/session/:id/abort</code>, <code>/undo</code>, <code>/compact</code></td><td></td></tr><tr><td>POST</td><td><code>/permission/:id</code></td><td><code>{&quot;reply&quot;: &quot;once&quot; | &quot;always&quot; | &quot;reject&quot;}</code></td></tr><tr><td>GET</td><td><code>/event</code></td><td>SSE stream of every session&#x27;s events</td></tr></tbody></table>
+<p>Stream events (each <code>data:</code> is JSON with a <code>session</code> field): <code>text</code>, <code>reasoning</code>, <code>tool_start</code>, <code>tool_end</code>, <code>step</code>, <code>notice</code>, <code>permission</code> (answer via <code>/permission/:id</code>), <code>done</code>, <code>error</code>.</p>
+<pre><code class="language-sh">id=$(curl -s -X POST localhost:4096/session -d &#x27;{}&#x27; | jq -r .id)
+curl -N -X POST localhost:4096/session/$id/message -d &#x27;{&quot;text&quot;:&quot;list the TODOs&quot;}&#x27;
+shaman run --attach http://localhost:4096 &quot;same thing from another terminal&quot;</code></pre>
+<p>Clients: <a href="../sdk/python/shaman_client.py">sdk/python/shaman_client.py</a>, <a href="../sdk/typescript/client.ts">sdk/typescript/client.ts</a>.</p>
+<footer>shaman 0.1.0 &middot; <a href="https://github.com/nikolas-chambers/shaman-cli">source</a></footer>
+</main>
+</body>
+</html>

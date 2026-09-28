@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Config - shaman</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav><div class="brand">shaman</div><div class="tag">a coding agent for your terminal</div>
+<a class="top" href="index.html">Homepage</a>
+<a class="top" href="docs.html">Docs</a>
+<div class="navlabel">Reference</div>
+<a href="architecture.html">Architecture</a>
+<a href="config.html" class="on">Config</a>
+<a href="plugins.html">Plugins</a>
+<a href="server.html">Server</a>
+</nav>
+<main>
+<h1 id="configuration">Configuration<a class="anchor" href="#configuration">#</a></h1>
+<p>Layers, lowest priority first; objects merge key by key:</p>
+<ol><li><code>~/.config/shaman/shaman.json(c)</code> (Windows: <code>%APPDATA%\shaman</code>)</li><li><code>shaman.json(c)</code> or <code>.shaman/shaman.json(c)</code>, from the project root down to the current directory</li><li><code>$SHAMAN_CONFIG</code> (a path), then <code>$SHAMAN_CONFIG_CONTENT</code> (inline JSON)</li></ol>
+<p>JSONC is accepted (comments, trailing commas). Any string may use <code>{env:NAME}</code> or <code>{file:path}</code>. <code>shaman debug config</code> prints the sources and the merged result.</p>
+<pre><code class="language-jsonc">{
+  &quot;model&quot;: &quot;opencode/big-pickle&quot;,           // provider/model; default: best free model ($SHAMAN_MODEL also works)
+  &quot;default_agent&quot;: &quot;build&quot;,
+  &quot;free_fallback&quot;: true,                    // rate-limited free model -&gt; next free model
+  &quot;snapshot&quot;: true,                         // git-backed /undo of file changes
+  &quot;instructions&quot;: [&quot;docs/CONVENTIONS.md&quot;],  // SHAMAN.md or AGENTS.md load automatically
+
+  // allow | ask | deny, per permission, optionally per subject pattern (most specific wins)
+  &quot;permission&quot;: {
+    &quot;edit&quot;: &quot;ask&quot;,
+    &quot;bash&quot;: { &quot;*&quot;: &quot;ask&quot;, &quot;npm test*&quot;: &quot;allow&quot;, &quot;rm -rf *&quot;: &quot;deny&quot; },
+    &quot;webfetch&quot;: &quot;allow&quot;, &quot;websearch&quot;: &quot;allow&quot;, &quot;mcp&quot;: &quot;ask&quot;, &quot;plugin&quot;: &quot;ask&quot;, &quot;external_directory&quot;: &quot;ask&quot;
+  },
+
+  &quot;agent&quot;: {
+    &quot;plan&quot;: { &quot;model&quot;: &quot;anthropic/claude-sonnet-5&quot; },
+    &quot;review&quot;: { &quot;description&quot;: &quot;Reviews diffs&quot;, &quot;prompt&quot;: &quot;Report bugs only.&quot;, &quot;tools&quot;: { &quot;write&quot;: false, &quot;edit&quot;: false } }
+  },
+
+  &quot;command&quot;: { &quot;test&quot;: { &quot;template&quot;: &quot;Run the tests and fix failures. $ARGUMENTS&quot;, &quot;description&quot;: &quot;Fix tests&quot; } },
+
+  // Extra or overridden providers (OpenAI-compatible or Anthropic protocol)
+  &quot;provider&quot;: {
+    &quot;mylab&quot;: { &quot;api&quot;: &quot;openai&quot;, &quot;baseURL&quot;: &quot;http://gpu-box:8000/v1&quot;, &quot;apiKey&quot;: &quot;{env:LAB_KEY}&quot;,
+               &quot;models&quot;: { &quot;qwen-coder&quot;: { &quot;name&quot;: &quot;Qwen Coder&quot;, &quot;context&quot;: 128000 } } }
+  },
+
+  &quot;mcp&quot;: {
+    &quot;fs&quot;:   { &quot;command&quot;: [&quot;npx&quot;, &quot;-y&quot;, &quot;@modelcontextprotocol/server-filesystem&quot;, &quot;.&quot;], &quot;environment&quot;: {} },
+    &quot;docs&quot;: { &quot;url&quot;: &quot;https://example.com/mcp&quot;, &quot;headers&quot;: { &quot;X-Team&quot;: &quot;core&quot; } },   // OAuth when the server asks
+    &quot;old&quot;:  { &quot;command&quot;: [&quot;legacy-server&quot;], &quot;enabled&quot;: false }
+  },
+
+  &quot;lsp&quot;: { &quot;timeout&quot;: 3000, &quot;servers&quot;: { &quot;zls&quot;: { &quot;command&quot;: [&quot;zls&quot;], &quot;extensions&quot;: [&quot;.zig&quot;] }, &quot;pyright&quot;: { &quot;disabled&quot;: true } } },
+  &quot;formatter&quot;: { &quot;ruff&quot;: false, &quot;mine&quot;: { &quot;command&quot;: [&quot;my-fmt&quot;, &quot;$FILE&quot;], &quot;extensions&quot;: [&quot;.foo&quot;] } },   // or false
+  &quot;plugin&quot;: [&quot;./tools/guard.py&quot;, { &quot;command&quot;: [&quot;node&quot;, &quot;plugin.js&quot;] }],
+  &quot;share&quot;: { &quot;url&quot;: &quot;https://paste.example.com/api&quot;, &quot;token&quot;: &quot;{env:PASTE_TOKEN}&quot; }   // optional upload for `shaman share`
+}</code></pre>
+<p>Markdown agents (<code>.shaman/agents/&lt;name&gt;.md</code>) and commands (<code>.shaman/commands/&lt;name&gt;.md</code>) take front matter:</p>
+<pre><code class="language-markdown">---
+description: Reviews diffs for bugs
+mode: primary            # primary | subagent | all
+model: opencode/big-pickle
+tools: read, grep, glob, bash
+---
+You are a strict reviewer. Report bugs only, with path:line.</code></pre>
+<p>Command templates support <code>$ARGUMENTS</code>, <code>$1</code>..<code>$9</code>, <code></code> !<code>shell</code> <code></code> and <code>@file</code>.</p>
+<footer>shaman 0.1.0 &middot; <a href="https://github.com/nikolas-chambers/shaman-cli">source</a></footer>
+</main>
+</body>
+</html>

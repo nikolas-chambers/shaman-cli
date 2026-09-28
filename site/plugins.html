@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Plugins - shaman</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav><div class="brand">shaman</div><div class="tag">a coding agent for your terminal</div>
+<a class="top" href="index.html">Homepage</a>
+<a class="top" href="docs.html">Docs</a>
+<div class="navlabel">Reference</div>
+<a href="architecture.html">Architecture</a>
+<a href="config.html">Config</a>
+<a href="plugins.html" class="on">Plugins</a>
+<a href="server.html">Server</a>
+</nav>
+<main>
+<h1 id="plugins">Plugins<a class="anchor" href="#plugins">#</a></h1>
+<p>A plugin is any executable that speaks newline-delimited JSON-RPC 2.0 on stdin/stdout. Load it from config (<code>&quot;plugin&quot;: [&quot;./guard.py&quot;]</code>) or put an executable in <code>.shaman/plugins/</code> or <code>~/.config/shaman/plugins/</code>. <code>stderr</code> is free for logging.</p>
+<p>SDKs handle the protocol: <a href="../sdk/python/shaman_plugin.py">Python</a> · <a href="../sdk/typescript/plugin.ts">TypeScript</a>. Complete example: <a href="../examples/plugins/guard.py">examples/plugins/guard.py</a>.</p>
+<h2 id="protocol">Protocol<a class="anchor" href="#protocol">#</a></h2>
+<p>shaman sends <code>initialize</code> <code>{version, protocol: 1, root}</code>; the plugin answers <code>{name, hooks: [...], tools: [{name, description, parameters, permission?}]}</code>.</p>
+<table><thead><tr><th>Hook (request)</th><th>Params</th><th>Result (all optional)</th></tr></thead><tbody><tr><td><code>tool.before</code></td><td><code>session, tool, input</code></td><td><code>{&quot;input&quot;: {...}}</code> rewrite, or <code>{&quot;block&quot;: &quot;reason&quot;}</code></td></tr><tr><td><code>tool.after</code></td><td><code>session, tool, input, output, is_error</code></td><td><code>{&quot;output&quot;: &quot;...&quot;}</code></td></tr><tr><td><code>permission.ask</code></td><td><code>permission, subject, title</code></td><td><code>{&quot;action&quot;: &quot;allow&quot; | &quot;deny&quot;}</code> (omit to defer to rules)</td></tr><tr><td><code>chat.system</code></td><td><code>agent, system</code></td><td><code>{&quot;system&quot;: &quot;...&quot;}</code></td></tr><tr><td><code>chat.message</code></td><td><code>session, text</code></td><td><code>{&quot;text&quot;: &quot;...&quot;}</code></td></tr><tr><td><code>tool.call</code></td><td><code>name, input, session, root</code></td><td><code>{&quot;output&quot;, &quot;is_error&quot;?, &quot;title&quot;?}</code> (for tools you declared)</td></tr></tbody></table>
+<p><code>event</code> notifications (list <code>&quot;event&quot;</code> in hooks): <code>prompt</code>, <code>tool.end</code>, <code>idle</code>, <code>error</code>, with a <code>data</code> object.</p>
+<p>Hooks run in load order with a 10 s timeout; a failing plugin is logged and skipped, never fatal. Plugin tools use the <code>plugin</code> permission (default <code>ask</code>) unless they declare their own.</p>
+<p>C++ embedders can implement <code>shaman::plugin::Hooks</code> and add it to the <code>plugin::Host</code> directly.</p>
+<footer>shaman 0.1.0 &middot; <a href="https://github.com/nikolas-chambers/shaman-cli">source</a></footer>
+</main>
+</body>
+</html>

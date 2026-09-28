@@ -102,6 +102,6 @@ endif()
 # Static documentation site for GitHub Pages: cmake --build build --target site
 if(PYTHON3)
   add_custom_target(site
-    COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/tools/site.py --src ${CMAKE_SOURCE_DIR} --out ${CMAKE_BINARY_DIR}/site
+    COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/tools/site.py --src ${CMAKE_SOURCE_DIR} --out ${CMAKE_SOURCE_DIR}/site
     COMMENT "Building documentation site")
 endif()

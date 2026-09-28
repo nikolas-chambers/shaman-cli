@@ -1,6 +1,7 @@
 # shaman-cli
 
-**Homepage: <https://nikolas-chambers.github.io/shaman-cli/>**
+**Homepage: <https://nikolas-chambers.github.io/shaman-cli/>**  
+**Docs: <https://nikolas-chambers.github.io/shaman-cli/docs.html>**
 
 A coding agent for your terminal, written in C++. Heavily inspired by
 [opencode](https://github.com/anomalyco/opencode) and Claude Code, and by what the

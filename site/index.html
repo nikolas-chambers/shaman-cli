@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>shaman-cli</title>
+<meta name="description" content="A coding agent for your terminal, written in C++. One native binary, free models out of the box.">
+<meta property="og:title" content="shaman-cli">
+<meta property="og:description" content="A coding agent for your terminal, written in C++. One native binary, free models out of the box.">
+<meta property="og:image" content="https://nikolas-chambers.github.io/shaman-cli/assets/banner.png">
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<style>
+:root { --bg:#05070a; --panel:#0c1117; --line:#17222c; --fg:#e8f3f6; --muted:#8aa0ab; --cyan:#22e4f0; --cyan-dim:#0fb5c2; }
+* { box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+a { color:var(--cyan); text-decoration:none; }
+a:hover { text-decoration:underline; }
+.wrap { max-width:1040px; margin:0 auto; padding:0 20px; }
+header.top { display:flex; align-items:center; justify-content:space-between; padding:18px 0; }
+header.top .brand { display:flex; align-items:center; gap:10px; font-weight:700; letter-spacing:.04em; color:var(--fg); }
+header.top .brand img { width:30px; height:30px; border-radius:8px; }
+header.top nav a { color:var(--muted); margin-left:20px; font-size:15px; }
+header.top nav a:hover { color:var(--fg); text-decoration:none; }
+.hero { padding:28px 0 56px; text-align:center; }
+.hero .banner { width:100%; border-radius:14px; border:1px solid var(--line); box-shadow:0 0 60px rgba(34,228,240,.08); }
+.hero h1 { font-size:clamp(26px,4vw,40px); line-height:1.2; margin:34px 0 10px; }
+.hero p.lead { color:var(--muted); font-size:clamp(16px,2vw,19px); max-width:640px; margin:0 auto 26px; }
+.cta { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+.btn { display:inline-block; padding:11px 22px; border-radius:10px; font-weight:600; border:1px solid var(--line); color:var(--fg); background:var(--panel); }
+.btn.primary { background:var(--cyan); border-color:var(--cyan); color:#021014; }
+.btn:hover { text-decoration:none; border-color:var(--cyan); }
+pre.term { text-align:left; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; overflow-x:auto;
+  font:14px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; margin:34px auto 0; max-width:680px; }
+pre.term .p { color:var(--cyan); user-select:none; }
+pre.term .c { color:var(--muted); }
+section { padding:56px 0; border-top:1px solid var(--line); }
+section h2 { font-size:26px; margin:0 0 8px; }
+section p.sub { color:var(--muted); margin:0 0 28px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:16px; }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; }
+.card h3 { margin:0 0 6px; font-size:16px; color:var(--cyan); }
+.card p { margin:0; color:var(--muted); font-size:15px; }
+.shots { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }
+.shots figure { margin:0; }
+.shots img { width:100%; border-radius:10px; border:1px solid var(--line); display:block; }
+.shots figcaption { color:var(--muted); font-size:14px; margin-top:8px; }
+.split { display:grid; grid-template-columns:200px 1fr; gap:32px; align-items:center; }
+.split img { width:100%; max-width:200px; border-radius:24px; }
+.split > div { min-width:0; }  /* let wide code blocks scroll instead of stretching the grid */
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.92em; background:var(--panel); border:1px solid var(--line);
+  padding:1px 6px; border-radius:6px; }
+footer { border-top:1px solid var(--line); padding:32px 0 48px; color:var(--muted); font-size:14px; }
+footer .coffee { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin-bottom:20px; }
+footer .coffee strong { color:var(--fg); }
+@media (max-width:640px) {
+  header.top nav a { margin-left:14px; }
+  header.top nav a.hide-sm { display:none; }
+  .split { grid-template-columns:1fr; text-align:center; }
+  .split img { margin:0 auto; max-width:140px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="#"><img src="assets/icon-192.png" alt="">shaman-cli</a>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#install" class="hide-sm">Install</a>
+      <a href="docs.html">Docs</a>
+      <a href="https://github.com/nikolas-chambers/shaman-cli">GitHub</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <img class="banner" src="assets/banner.png" alt="shaman-cli: powerful, flexible, open source">
+    <h1>A coding agent for your terminal</h1>
+    <p class="lead">One native C++ binary. Free models out of the box, any provider with a key. Reads, edits, runs and verifies your code.</p>
+    <div class="cta">
+      <a class="btn primary" href="#install">Get started</a>
+      <a class="btn" href="https://github.com/nikolas-chambers/shaman-cli">View on GitHub</a>
+    </div>
+    <pre class="term"><span class="p">$ </span>shaman                              <span class="c"># full-screen UI</span>
+<span class="p">$ </span>shaman run "why is the build failing?"
+<span class="p">$ </span>git diff | shaman run "review this"
+<span class="p">$ </span>shaman web                          <span class="c"># browser UI</span></pre>
+  </div>
+</div>
+
+<section id="features">
+  <div class="wrap">
+    <h2>Everything in one binary</h2>
+    <p class="sub">Starts in milliseconds, no runtime to install.</p>
+    <div class="grid">
+      <div class="card"><h3>Free to start</h3><p>Big Pickle and other free models work with no account. When a free model is rate limited, shaman switches to the next one.</p></div>
+      <div class="card"><h3>Any model</h3><p>Anthropic, OpenAI, Gemini, OpenRouter, xAI, DeepSeek, Groq, Mistral, or local Ollama and LM Studio.</p></div>
+      <div class="card"><h3>Terminal, web, desktop</h3><p>A full-screen TUI, a browser UI, a native desktop app, plus an HTTP API and ACP for editors.</p></div>
+      <div class="card"><h3>Real tools</h3><p>Read, edit, patch, grep, run commands, search the web, use language servers and run formatters after every edit.</p></div>
+      <div class="card"><h3>23 built-in skills</h3><p>Code review, debugging, testing, security, PDF, Word, Excel, PowerPoint and more, loaded only when relevant.</p></div>
+      <div class="card"><h3>Extensible</h3><p>MCP servers (stdio, HTTP, OAuth), plugins in any language, custom agents, commands and skills.</p></div>
+      <div class="card"><h3>Safe by default</h3><p>Edits and commands ask first, read-only plan mode, a loop guard, and undo that never touches your git state.</p></div>
+      <div class="card"><h3>Easy to debug</h3><p>Per-subsystem debug logs, full JSONL traces, and <code>shaman debug</code> to inspect prompts, models and permissions.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>See it work</h2>
+    <p class="sub">The same agent in the terminal and in the browser.</p>
+    <div class="shots">
+      <figure><img src="assets/screens/tui.png" alt="shaman full-screen terminal UI" loading="lazy"><figcaption>Full-screen terminal UI with the command palette</figcaption></figure>
+      <figure><img src="assets/screens/web.png" alt="shaman web UI" loading="lazy"><figcaption>Web UI (<code>shaman web</code>), also the desktop app</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap split">
+    <img src="assets/logo.png" alt="shaman-cli logo">
+    <div>
+      <h2>Install</h2>
+      <p class="sub">Build from source with CMake and a C++23 compiler.</p>
+      <pre class="term" style="margin:0;max-width:none"><span class="c"># Debian/Ubuntu: apt install cmake ninja-build libcurl4-openssl-dev libssl-dev nlohmann-json3-dev</span>
+<span class="c"># macOS:         brew install cmake ninja curl openssl nlohmann-json</span>
+<span class="p">$ </span>git clone https://github.com/nikolas-chambers/shaman-cli
+<span class="p">$ </span>cd shaman-cli && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+<span class="p">$ </span>cmake --build build && sudo cmake --install build</pre>
+      <p style="color:var(--muted);margin-top:14px">Docs: <a href="https://github.com/nikolas-chambers/shaman-cli#readme">README</a> ·
+        <a href="config.html">Config</a> · <a href="server.html">HTTP API</a> · <a href="plugins.html">Plugins</a> · <a href="architecture.html">Architecture</a></p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="coffee"><strong>☕ Buy me a coffee?</strong> Venmo · Cash App · PayPal: <strong>"NikAndRigatoni"</strong> (Nikolas Chambers).
+      My dog and I are living in the car right now; a few bucks buys dog food, gas, and more hours to keep building.</div>
+    MIT licensed · Inspired by <a href="https://github.com/anomalyco/opencode">opencode</a> · Free models by <a href="https://opencode.ai/zen">OpenCode Zen</a> · Not affiliated with opencode.
+  </div>
+</footer>
+</body>
+</html>
